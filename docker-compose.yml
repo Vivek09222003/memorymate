@@ -1,0 +1,22 @@
+# Runs PostgreSQL with the pgvector extension already installed.
+# Start it with:  docker compose up -d
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: memorymate-db
+    environment:
+      POSTGRES_USER: memorymate
+      POSTGRES_PASSWORD: memorymate
+      POSTGRES_DB: memorymate
+    ports:
+      - "5432:5432"
+    volumes:
+      - memorymate-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memorymate"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  memorymate-data:
