@@ -12,13 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import family_access as access
 from app.database import get_db
-from app.models import (AccessLog, FamilyLink, LinkStatus, Memory, MemoryStatus, OccurrenceStatus, Person,
-                        Reminder, ReminderKind, ReminderOccurrence, ReminderStatus, User, UserRole, Visibility)
+from app.models import (HELPER_ROLES, AccessLog, FamilyLink, LinkStatus, Memory, MemoryStatus, MemoryType,
+                        OccurrenceStatus, Person, Reminder, ReminderKind, ReminderOccurrence, ReminderStatus, User,
+                        UserRole, Visibility)
 from app.routers.reminders import alert_out, new_reminder
-from app.schemas import (AccessLogOut, EmergencyOut, FamilyDashboard, FamilyLinkCreate, FamilyLinkOut,
-                         FamilyLinkUpdate, PersonOut, ReminderCreate, ReminderOut, ReminderSuggestionIn,
-                         SharedMemoryOut)
+from app.schemas import (AccessLogOut, DoctorNoteIn, EmergencyOut, FamilyDashboard,
+                         FamilyLinkCreate, FamilyLinkOut, FamilyLinkUpdate, InviteCreate, JoinIn, PersonOut,
+                         ReminderCreate, ReminderOut, ReminderSuggestionIn, SharedMemoryOut, SuggestedNoteOut)
 from app.security import get_current_user
 from app.timeutil import local_now, local_tz, show
 
@@ -29,15 +31,19 @@ SHAREABLE = [Visibility.CARE, Visibility.SHARED_FAMILY, Visibility.EMERGENCY]  #
 
 # ---------- helpers ----------
 def _require(user: User, role: UserRole) -> None:
-    if user.role != role:
-        who = "the elderly user's" if role == UserRole.ELDER else "a family"
+    """ELDER: only the elder. FAMILY: family members and doctors (both are linked helpers)."""
+    ok = user.role == role or (role == UserRole.FAMILY and user.role in HELPER_ROLES)
+    if not ok:
+        who = "the elderly user's" if role == UserRole.ELDER else "a family or doctor"
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"This needs {who} account.")
 
 
 def _link_out(link: FamilyLink) -> FamilyLinkOut:
     return FamilyLinkOut(
         id=link.id, relation=link.relation, status=link.status, created_at=link.created_at,
-        family_user_id=link.family_user_id, family_name=link.family_user.name, family_email=link.family_user.email,
+        family_user_id=link.family_user_id, family_name=link.display_name,
+        family_email=link.family_user.email if link.family_user else None,
+        invite_code=link.invite_code if link.status == LinkStatus.INVITED else None,
         elder_id=link.elder_id, elder_name=link.elder.name,
         can_see_medicines=link.can_see_medicines, can_see_appointments=link.can_see_appointments,
         can_see_shared_memories=link.can_see_shared_memories, can_see_emergency=link.can_see_emergency,
@@ -65,9 +71,10 @@ def link_family(data: FamilyLinkCreate, user: User = Depends(get_current_user), 
     """Elder: give a family member access. They must already have a FAMILY account."""
     _require(user, UserRole.ELDER)
     member = db.scalar(select(User).where(func.lower(User.email) == data.family_email.strip().lower()))
-    if member is None or member.role != UserRole.FAMILY:
+    if member is None or member.role not in HELPER_ROLES:
         raise HTTPException(status.HTTP_404_NOT_FOUND,
-                            "No family account with that email. Ask them to register with role FAMILY first.")
+                            "No family or doctor account with that email. Ask them to sign up first, "
+                            "or give access by chat to get a code.")
     link = db.scalar(select(FamilyLink).where(FamilyLink.elder_id == user.id,
                                               FamilyLink.family_user_id == member.id))
     if link is None:
@@ -86,10 +93,31 @@ def link_family(data: FamilyLinkCreate, user: User = Depends(get_current_user), 
 
 @router.get("/links", response_model=list[FamilyLinkOut])
 def my_family(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Elder: everyone you've given access to, and exactly what they can see."""
+    """Elder: everyone you've given access to (and invites not yet used), and exactly what they can see."""
     _require(user, UserRole.ELDER)
     return [_link_out(l) for l in db.scalars(
-        select(FamilyLink).where(FamilyLink.elder_id == user.id, FamilyLink.status == LinkStatus.ACTIVE)).all()]
+        select(FamilyLink).where(FamilyLink.elder_id == user.id,
+                                 FamilyLink.status.in_([LinkStatus.ACTIVE, LinkStatus.INVITED]))).all()]
+
+
+@router.post("/invites", response_model=FamilyLinkOut, status_code=status.HTTP_201_CREATED)
+def invite(data: InviteCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Elder: give someone access before they have an account. Share the returned invite_code with them."""
+    _require(user, UserRole.ELDER)
+    flags = data.model_dump(exclude={"name", "email"})
+    access.grant(db, user, data.name, flags, data.email)
+    db.commit()
+    link = access.find_link(db, user.id, data.name)
+    return _link_out(link)
+
+
+@router.post("/join", response_model=FamilyLinkOut)
+def join_with_code(data: JoinIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Family: enter the code your relative gave you."""
+    link = access.join(db, user, data.code)
+    db.commit()
+    db.refresh(link)
+    return _link_out(link)
 
 
 @router.patch("/links/{link_id}", response_model=FamilyLinkOut)
@@ -98,7 +126,7 @@ def change_permissions(link_id: int, data: FamilyLinkUpdate,
     """Elder: switch individual permissions on or off. Send only what changes."""
     _require(user, UserRole.ELDER)
     link = db.get(FamilyLink, link_id)
-    if link is None or link.elder_id != user.id or link.status != LinkStatus.ACTIVE:
+    if link is None or link.elder_id != user.id or link.status == LinkStatus.REVOKED:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Link not found.")
     for field, value in data.model_dump(exclude_unset=True).items():
         if value is not None:
@@ -115,7 +143,7 @@ def revoke(link_id: int, user: User = Depends(get_current_user), db: Session = D
     link = db.get(FamilyLink, link_id)
     if link is None or link.elder_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Link not found.")
-    link.status = LinkStatus.REVOKED
+    access.revoke(link)
     db.commit()
 
 
@@ -164,13 +192,24 @@ def dashboard(elder_id: int, user: User = Depends(get_current_user), db: Session
         out.hidden_sections.append("medicines")
 
     if link.can_see_appointments:
-        appts = main_alerts(ReminderKind.APPOINTMENT, start, start + timedelta(days=30))
+        appts = sorted(main_alerts(ReminderKind.APPOINTMENT, start, start + timedelta(days=30))
+                       + main_alerts(ReminderKind.TASK, start, start + timedelta(days=30)),
+                       key=lambda o: o.for_due_at)
         # Only what is still to come: not already done, missed or cancelled.
         out.upcoming_appointments = [alert_out(o) for o in appts
                                      if o.status in (OccurrenceStatus.SCHEDULED, OccurrenceStatus.DUE)]
         seen.append("appointments")
     else:
         out.hidden_sections.append("appointments")
+
+    if link.can_see_medicines or link.can_see_appointments:
+        notes = db.scalars(select(Memory).where(Memory.owner_id == elder_id, Memory.status == MemoryStatus.ACTIVE,
+                                                Memory.visibility == Visibility.CARE)
+                           .order_by(Memory.created_at.desc()).limit(20)).all()
+        out.health_notes = [SharedMemoryOut(fact=m.normalized_fact, event_date=m.event_date,
+                                            told_on=show(m.created_at)) for m in notes]
+        if notes:
+            seen.append("health notes")
 
     if link.can_see_shared_memories:
         mems = db.scalars(select(Memory).where(Memory.owner_id == elder_id, Memory.status == MemoryStatus.ACTIVE,
@@ -212,3 +251,19 @@ def suggest_reminder(elder_id: int, data: ReminderSuggestionIn,
     db.commit()
     db.refresh(reminder)
     return ReminderOut.model_validate(reminder)
+
+
+@router.post("/elders/{elder_id}/notes", response_model=SuggestedNoteOut, status_code=status.HTTP_201_CREATED)
+def add_doctor_note(elder_id: int, data: DoctorNoteIn,
+                    user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Doctor or family: send a health note or advice. It joins the elder's memories only when they accept it."""
+    _require(user, UserRole.FAMILY)
+    _active_link(db, elder_id, user)
+    note = Memory(owner_id=elder_id, memory_type=MemoryType.HEALTH, status=MemoryStatus.PENDING,
+                  visibility=Visibility.CARE, original_text=f"{user.name}: {data.text.strip()}",
+                  normalized_fact=f"{user.name} advised: {data.text.strip()}", attribute="doctor's advice",
+                  suggested_by_id=user.id, valid_from=local_now().date())
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return SuggestedNoteOut(id=note.id, text=data.text.strip(), from_name=user.name, created_at=show(note.created_at))

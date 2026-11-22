@@ -10,13 +10,13 @@ from datetime import datetime, time, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import SessionLocal
 from app.models import OccurrenceStatus, Reminder, ReminderOccurrence, ReminderStatus, Repeat
 from app.timeutil import local_tz
 
 log = logging.getLogger("memorymate.reminders")
 
-MISSED_AFTER = timedelta(hours=1)   # an alert nobody answers becomes MISSED after this
 CHECK_EVERY_SECONDS = 30
 PREVIOUS_EVENING = time(18, 0)      # "the evening before" alert time
 
@@ -101,7 +101,7 @@ def tick(db: Session) -> int:
     stale = db.scalars(
         select(ReminderOccurrence).where(
             ReminderOccurrence.status == OccurrenceStatus.DUE,
-            ReminderOccurrence.fired_at <= now - MISSED_AFTER)
+            ReminderOccurrence.fired_at <= now - timedelta(minutes=settings.missed_after_minutes))
     ).all()
     for occ in stale:
         occ.status = OccurrenceStatus.MISSED
@@ -123,3 +123,11 @@ async def run_forever() -> None:
 def _tick_once() -> None:
     with SessionLocal() as db:
         tick(db)
+
+
+def cancel(reminder: Reminder) -> None:
+    """Stop a reminder: it won't ring again (history of past alerts is kept)."""
+    reminder.status = ReminderStatus.CANCELLED
+    for o in reminder.occurrences:
+        if o.status in (OccurrenceStatus.SCHEDULED, OccurrenceStatus.DUE):
+            o.status = OccurrenceStatus.SKIPPED

@@ -5,8 +5,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.family_access import join
 from app.models import User
-from app.schemas import Token, UserCreate, UserOut
+from app.schemas import Token, UserCreate, UserOut, UserUpdate
 from app.security import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["Login"])
@@ -25,6 +26,9 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         preferred_language=data.preferred_language,
     )
     db.add(user)
+    db.flush()
+    if data.invite_code:  # family member signing up with the code their relative gave them
+        join(db, user, data.invite_code)  # an invalid code cancels the whole sign-up
     db.commit()
     db.refresh(user)
     return user
@@ -42,4 +46,15 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 
 @router.get("/me", response_model=UserOut)
 def me(user: User = Depends(get_current_user)):
+    return user
+
+
+@router.patch("/me", response_model=UserOut)
+def update_me(data: UserUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Change your name or language (en, hi, te)."""
+    for field, value in data.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(user, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(user)
     return user

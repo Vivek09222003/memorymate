@@ -35,6 +35,11 @@ def init_db() -> None:
         "REFERENCES memories(id) ON DELETE SET NULL",  # Step 4c
         "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS suggested_by_id INTEGER "
         "REFERENCES users(id) ON DELETE SET NULL",  # Step 5
+        "ALTER TABLE family_links ALTER COLUMN family_user_id DROP NOT NULL",  # invites
+        "ALTER TABLE family_links ADD COLUMN IF NOT EXISTS invite_name VARCHAR(100)",
+        "ALTER TABLE family_links ADD COLUMN IF NOT EXISTS invite_code VARCHAR(12) UNIQUE",
+        "ALTER TABLE memories ADD COLUMN IF NOT EXISTS suggested_by_id INTEGER "
+        "REFERENCES users(id) ON DELETE SET NULL",  # doctor's notes
     ]
     with engine.begin() as conn:
         for sql in upgrades:

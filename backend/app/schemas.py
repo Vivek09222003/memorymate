@@ -15,7 +15,15 @@ class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$", examples=["vivek@example.com"])
     password: str = Field(min_length=6, max_length=72, examples=["secret123"])
     role: UserRole = UserRole.ELDER
-    preferred_language: str = Field(default="en", pattern=r"^(en|hi|te)$")
+    preferred_language: str = Field(default="en", pattern=r"^(en|hi|hinglish)$")
+    invite_code: str | None = Field(default=None, max_length=12,
+                                    description="Family accounts: the code your relative gave you")
+
+
+class UserUpdate(BaseModel):
+    """Send only what changes."""
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    preferred_language: str | None = Field(default=None, pattern=r"^(en|hi|hinglish)$")
 
 
 class UserOut(BaseModel):
@@ -96,6 +104,7 @@ class MemoryOut(BaseModel):
     status: MemoryStatus
     visibility: Visibility
     replaces_id: int | None = None   # set when this memory corrects an older one
+    suggested_by_id: int | None = None  # a doctor's note: who wrote it
     valid_from: date | None = None
     valid_to: date | None = None     # set when it was replaced (HISTORICAL)
     created_at: datetime
@@ -124,7 +133,11 @@ class ChatOut(BaseModel):
     pending_memories: list[MemoryOut] = []   # waiting for the user's yes/no
     forget_candidates: list[MemoryOut] = []  # the user asked to forget these; confirm with DELETE /memories/{id}
     suggested_people: list[NewPerson] = []   # people the AI heard about who aren't saved yet
-    reminder_suggestion: ReminderSuggestion | None = None  # set it by answering "yes"
+    reminder_suggestions: list[ReminderSuggestion] = []  # set them all by answering "yes"
+    reminder_suggestion: ReminderSuggestion | None = None  # the first one (kept for older screens)
+    access_changes: list[dict] = []        # family access waiting for "yes"
+    visibility_changes: list[dict] = []    # sharing changes for existing memories, waiting for "yes"
+    reminders_to_cancel: list[dict] = []   # reminders to remove, waiting for "yes"
     waiting_for_yes_or_no: bool = False  # True: just reply "yes" or "no" to the question
 
 
@@ -159,6 +172,8 @@ class ReminderOut(BaseModel):
     status: ReminderStatus
     visibility: Visibility
     suggested_by_id: int | None = None
+    suggested_by: str | None = None   # e.g. "Priya (your daughter)"
+    due_local: str | None = None      # e.g. "Sun 22 Nov, 6:00 PM"
     next_alert_at: datetime | None = None
     next_alert_local: str | None = None
 
@@ -207,12 +222,23 @@ class FamilyLinkOut(Scopes):
     id: int
     relation: str
     status: LinkStatus
-    family_user_id: int
+    family_user_id: int | None
     family_name: str
-    family_email: str
+    family_email: str | None
+    invite_code: str | None = None  # shown to the elder until the family member joins
     elder_id: int
     elder_name: str
     created_at: datetime
+
+
+class InviteCreate(Scopes):
+    """Give someone access before they have an account. They join with the returned code."""
+    name: str = Field(min_length=1, max_length=100, examples=["Rajesh"])
+    email: str | None = Field(default=None, description="If they already have a family account")
+
+
+class JoinIn(BaseModel):
+    code: str = Field(min_length=4, max_length=12, examples=["K7M2Q9RD"])
 
 
 class SharedMemoryOut(BaseModel):
@@ -235,8 +261,22 @@ class FamilyDashboard(BaseModel):
     missed_medicines_today: int | None = None
     upcoming_appointments: list[AlertOut] | None = None
     shared_memories: list[SharedMemoryOut] | None = None
+    health_notes: list[SharedMemoryOut] | None = None  # CARE memories, for family who help with health
     emergency: EmergencyOut | None = None
     hidden_sections: list[str] = []
+
+
+class DoctorNoteIn(BaseModel):
+    text: str = Field(min_length=3, max_length=1000,
+                      examples=["Walk for 20 minutes every morning and keep sugar low."])
+
+
+class SuggestedNoteOut(BaseModel):
+    """A note from a doctor, waiting for the elder to accept it."""
+    id: int
+    text: str
+    from_name: str
+    created_at: str
 
 
 class AccessLogOut(BaseModel):

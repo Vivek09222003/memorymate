@@ -1,5 +1,6 @@
 """The memory vault: approve, reject, list, search, share and forget memories."""
 import logging
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -11,9 +12,9 @@ from app.database import get_db
 from app.embeddings import embed, memory_text
 from app.models import Memory, MemoryStatus, Person, User
 from app.retrieval import search
-from app.schemas import MemoryHit, MemoryOut, VisibilityUpdate
+from app.schemas import MemoryHit, MemoryOut, SuggestedNoteOut, VisibilityUpdate
 from app.security import get_current_user
-from app.timeutil import local_now
+from app.timeutil import local_now, show
 
 router = APIRouter(prefix="/memories", tags=["Memories"])
 log = logging.getLogger("memorymate.memories")
@@ -40,11 +41,28 @@ def _get_own_memory(db: Session, user: User, memory_id: int) -> Memory:
     return memory
 
 
+PHONE_ATTRIBUTES = {"phone", "phone number", "mobile", "mobile number", "contact", "contact number", "number"}
+
+
+def sync_phone(db: Session, memory: Memory) -> None:
+    """A phone-number memory about someone also updates their contact, so the family dashboard
+    and the emergency screen show it."""
+    if memory.person_id is None or (memory.attribute or "").strip().lower() not in PHONE_ATTRIBUTES:
+        return
+    value = (memory.value or "").strip()
+    if len(re.sub(r"\D", "", value)) < 6:  # not a real number
+        return
+    person = db.get(Person, memory.person_id)
+    if person is not None and person.owner_id == memory.owner_id:
+        person.phone = value[:30]
+
+
 def activate(db: Session, memory: Memory) -> None:
     """Make a pending memory permanent (used by the approve button and by a "yes" in the chat).
     If it corrects an older memory, the older one becomes HISTORICAL instead of being deleted."""
     memory.status = MemoryStatus.ACTIVE
     memory.approved_at = datetime.now(timezone.utc)
+    sync_phone(db, memory)
     if memory.replaces_id:
         old = db.get(Memory, memory.replaces_id)
         if old is not None and old.owner_id == memory.owner_id and old.status == MemoryStatus.ACTIVE:
@@ -77,6 +95,21 @@ def search_memories(q: str = Query(min_length=1, examples=["Where does my grands
     people = db.scalars(select(Person).where(Person.owner_id == user.id)).all()
     return [MemoryHit(memory=MemoryOut.model_validate(h.memory), matched_by=h.matched_by, distance=h.distance)
             for h in search(db, user.id, q, people, close_only=not show_all)]
+
+
+@router.get("/from-others", response_model=list[SuggestedNoteOut])
+def notes_from_others(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Notes your doctor sent, waiting for you to accept (POST /memories/{id}/approve) or decline (/reject)."""
+    notes = db.scalars(select(Memory).where(Memory.owner_id == user.id, Memory.status == MemoryStatus.PENDING,
+                                            Memory.suggested_by_id.is_not(None))
+                       .order_by(Memory.created_at)).all()
+    out = []
+    for m in notes:
+        who = db.get(User, m.suggested_by_id)
+        text = m.original_text.split(": ", 1)[-1]
+        out.append(SuggestedNoteOut(id=m.id, text=text, from_name=who.name if who else "your doctor",
+                                    created_at=show(m.created_at)))
+    return out
 
 
 @router.post("/reindex")

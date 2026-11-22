@@ -6,9 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import (OccurrenceStatus, Person, Reminder, ReminderKind, ReminderOccurrence,
+from app.models import (FamilyLink, OccurrenceStatus, Person, Reminder, ReminderKind, ReminderOccurrence,
                         ReminderStatus, Repeat, User)
 from app.reminders import advance, first_due, plan_alerts, tick
+from app.reminders import cancel as cancel_reminder
 from app.schemas import AlertOut, ReminderCreate, ReminderOut
 from app.security import get_current_user
 from app.timeutil import local_dt, local_now, local_tz, show
@@ -83,10 +84,21 @@ def create_reminder(data: ReminderCreate, user: User = Depends(get_current_user)
 
 @router.get("/suggestions", response_model=list[ReminderOut])
 def suggestions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Reminders that family members suggested, waiting for your yes or no."""
-    return [_reminder_out(r) for r in db.scalars(
-        select(Reminder).where(Reminder.owner_id == user.id, Reminder.status == ReminderStatus.SUGGESTED)
-        .order_by(Reminder.created_at)).all()]
+    """Reminders that family members suggested, waiting for your yes or no, with who suggested each."""
+    out = []
+    for r in db.scalars(select(Reminder).where(Reminder.owner_id == user.id,
+                                               Reminder.status == ReminderStatus.SUGGESTED)
+                        .order_by(Reminder.created_at)).all():
+        item = _reminder_out(r)
+        item.due_local = show(first_due(r))
+        if r.suggested_by_id:
+            who = db.get(User, r.suggested_by_id)
+            link = db.scalar(select(FamilyLink).where(FamilyLink.elder_id == user.id,
+                                                      FamilyLink.family_user_id == r.suggested_by_id))
+            if who is not None:
+                item.suggested_by = who.name + (f" (your {link.relation})" if link and link.relation else "")
+        out.append(item)
+    return out
 
 
 def _own_suggestion(db: Session, user: User, reminder_id: int) -> Reminder:
@@ -101,8 +113,9 @@ def accept_suggestion(reminder_id: int, user: User = Depends(get_current_user), 
     """Yes: the suggested reminder becomes active and will ring."""
     reminder = _own_suggestion(db, user, reminder_id)
     due = first_due(reminder)
-    if reminder.repeat == Repeat.NONE and due <= local_now():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That time has already passed. Decline it instead.")
+    if reminder.repeat == Repeat.NONE and due < local_now() - timedelta(hours=12):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That was more than 12 hours ago. Decline it instead.")
+    # A little late (e.g. accepted at 6:10 for 6:00)? It rings right away.
     reminder.status = ReminderStatus.ACTIVE
     plan_alerts(db, reminder, due)
     db.commit()
@@ -194,10 +207,7 @@ def cancel(reminder_id: int, user: User = Depends(get_current_user), db: Session
     reminder = db.get(Reminder, reminder_id)
     if reminder is None or reminder.owner_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Reminder not found.")
-    reminder.status = ReminderStatus.CANCELLED
-    for o in reminder.occurrences:
-        if o.status == OccurrenceStatus.SCHEDULED:
-            o.status = OccurrenceStatus.SKIPPED
+    cancel_reminder(reminder)
     db.commit()
 
 

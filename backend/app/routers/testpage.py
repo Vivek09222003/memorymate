@@ -39,27 +39,51 @@ PAGE = r"""<!DOCTYPE html>
   .sug{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0}
   .sug span{flex:1}
 </style></head><body>
-<header><b>MemoryMate · test page</b><span id="who"></span><button class="light" id="out" style="display:none">Log out</button></header>
+<header><b>MemoryMate · test page</b><button class="light" id="notif" style="display:none">Turn on desktop alerts</button><select id="lang" style="display:none;font:inherit;padding:8px;border-radius:10px" aria-label="Language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select><span id="who"></span><button class="light" id="out" style="display:none">Log out</button></header>
 <main>
   <form id="login"><div>Log in to start (same accounts as /docs). Elder accounts get the chat, family accounts get the dashboard.</div>
     <input id="email" placeholder="Email" value="vivek@example.com" autocomplete="username">
     <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
     <button>Log in</button><div id="lerr" class="m err" style="display:none"></div></form>
+  <form id="esignup" style="background:#fff;border-radius:16px;padding:20px;display:grid;gap:10px;max-width:420px;margin-top:14px">
+    <div><b>New to MemoryMate?</b> Create your own account.</div>
+    <input id="ename" placeholder="Your name" required>
+    <input id="eemail" placeholder="Email" required autocomplete="username">
+    <input id="epw" type="password" placeholder="Choose a password (6+ characters)" required autocomplete="new-password">
+    <select id="elang" style="font:inherit;padding:12px;border:2px solid #d3d6ee;border-radius:12px"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select>
+    <button>Create my account</button><div id="eerr" class="m err" style="display:none"></div></form>
+  <form id="signup" style="background:#fff;border-radius:16px;padding:20px;display:grid;gap:10px;max-width:420px;margin-top:14px">
+    <div><b>New family member or doctor?</b> Sign up with the code you were given.</div>
+    <input id="sname" placeholder="Your name" required>
+    <input id="semail" placeholder="Email" required autocomplete="username">
+    <input id="spw" type="password" placeholder="Choose a password (6+ characters)" required autocomplete="new-password">
+    <input id="scode" placeholder="Code, e.g. K7M2Q9RD" required style="text-transform:uppercase">
+    <button>Sign up and connect</button><div id="serr" class="m err" style="display:none"></div></form>
   <div id="family" style="display:none">
-    <div class="row" style="margin-bottom:12px"><label for="elder">Relative:</label><select id="elder" style="font:inherit;padding:8px;border-radius:10px"></select>
+    <div class="row" style="margin-bottom:12px"><label for="elder" id="elderlabel">Relative:</label><select id="elder" style="font:inherit;padding:8px;border-radius:10px"></select>
       <button class="light" id="refresh">Refresh</button></div>
     <div id="dash"></div>
-    <div class="card"><h3>Suggest a reminder</h3>
+    <div class="card"><h3 id="codetitle">Got a code from a patient or relative?</h3>
+      <form id="joinf" class="row"><input id="jcode" placeholder="e.g. K7M2Q9RD" style="text-transform:uppercase" required><button>Connect</button></form>
+      <div id="jmsg" class="muted"></div></div>
+    <div class="card" id="doc" style="display:none"><h3>Add a health note</h3>
+      <p class="muted">Advice or a doctor's instruction. It's added to their memory only if they accept it.</p>
+      <form id="notef" class="row"><input id="ntext" placeholder="e.g. Walk 20 minutes every morning; keep sugar low" required style="flex:1 1 300px"><button>Send note</button></form>
+      <div id="nmsg" class="muted"></div></div>
+    <div class="card"><h3 id="sugtitle">Suggest a medicine or reminder</h3>
       <p class="muted">It only starts ringing after your relative accepts it.</p>
       <form id="sugf" class="row">
         <input id="st" placeholder="What, e.g. Call Priya" required>
         <select id="sk" style="font:inherit;padding:10px;border-radius:12px"><option value="CALL">Call</option><option value="MEDICINE">Medicine</option><option value="APPOINTMENT">Appointment</option><option value="TASK">Task</option><option value="BIRTHDAY">Birthday</option></select>
         <input id="sd" type="date" required><input id="sti" type="time" value="18:00" required>
+        <select id="srep" style="font:inherit;padding:10px;border-radius:12px"><option value="NONE">Once</option><option value="DAILY">Every day</option><option value="WEEKLY">Every week</option><option value="YEARLY">Every year</option></select>
+        <input id="snotes" placeholder="Notes, e.g. 5 mg after dinner">
         <button>Suggest</button></form>
       <div id="sugmsg" class="muted"></div></div>
   </div>
   <div id="app" style="display:none">
     <div id="alerts"></div>
+    <div id="docnotes"></div>
     <div id="suggestions"></div>
     <div id="log"></div>
     <div id="quick"><button id="yes">Yes</button><button class="light" id="no">No</button></div>
@@ -87,18 +111,47 @@ async function api(path, opts = {}) {
 let role = "";
 function show(loggedIn) {
   $("#login").style.display = loggedIn ? "none" : "grid";
+  $("#signup").style.display = loggedIn ? "none" : "grid";
+  $("#esignup").style.display = loggedIn ? "none" : "grid";
   $("#app").style.display = loggedIn && role === "ELDER" ? "block" : "none";
-  $("#family").style.display = loggedIn && role === "FAMILY" ? "block" : "none";
+  $("#family").style.display = loggedIn && (role === "FAMILY" || role === "DOCTOR") ? "block" : "none";
+  $("#doc").style.display = loggedIn && (role === "FAMILY" || role === "DOCTOR") ? "block" : "none";
   $("#out").style.display = loggedIn ? "inline-block" : "none";
 }
-function logout() { token = ""; role = ""; sessionStorage.removeItem("mm_token"); show(false); }
+$("#lang").addEventListener("change", async () => {
+  try { await api("/auth/me", {method: "PATCH", headers: {"Content-Type": "application/json"},
+                               body: JSON.stringify({preferred_language: $("#lang").value})}); } catch (e) {}
+});
+function logout() { $("#lang").style.display = "none"; token = ""; role = ""; sessionStorage.removeItem("mm_token"); show(false); }
 
 $("#login").addEventListener("submit", async e => {
   e.preventDefault(); $("#lerr").style.display = "none";
   const form = new URLSearchParams({username: $("#email").value, password: $("#pw").value});
   const r = await fetch("/auth/login", {method: "POST", body: form});
   if (!r.ok) { $("#lerr").textContent = "Wrong email or password."; $("#lerr").style.display = "block"; return; }
-  token = (await r.json()).access_token; sessionStorage.setItem("mm_token", token); start();
+  token = (await r.json()).access_token; sessionStorage.setItem("mm_token", token);
+  askNotify(); start();
+});
+$("#esignup").addEventListener("submit", async e => {
+  e.preventDefault(); $("#eerr").style.display = "none";
+  const body = {name: $("#ename").value, email: $("#eemail").value, password: $("#epw").value,
+                role: "ELDER", preferred_language: $("#elang").value};
+  const r = await fetch("/auth/register", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  if (!r.ok) { const b = await r.json().catch(() => ({})); $("#eerr").textContent = typeof b.detail === "string" ? b.detail : "Please check the details (a real email, and a password of 6+ characters)."; $("#eerr").style.display = "block"; return; }
+  const form = new URLSearchParams({username: body.email, password: body.password});
+  const t = await fetch("/auth/login", {method: "POST", body: form});
+  token = (await t.json()).access_token; sessionStorage.setItem("mm_token", token);
+  askNotify(); start();
+});
+$("#signup").addEventListener("submit", async e => {
+  e.preventDefault(); $("#serr").style.display = "none";
+  const body = {name: $("#sname").value, email: $("#semail").value, password: $("#spw").value,
+                role: "FAMILY", invite_code: $("#scode").value.trim().toUpperCase()};
+  const r = await fetch("/auth/register", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  if (!r.ok) { const b = await r.json().catch(() => ({})); $("#serr").textContent = typeof b.detail === "string" ? b.detail : "Please check the details (password needs 6+ characters)."; $("#serr").style.display = "block"; return; }
+  const form = new URLSearchParams({username: body.email, password: body.password});
+  const t = await fetch("/auth/login", {method: "POST", body: form});
+  token = (await t.json()).access_token; sessionStorage.setItem("mm_token", token); start();
 });
 $("#out").addEventListener("click", logout);
 
@@ -106,9 +159,13 @@ async function start() {
   try {
     const me = await api("/auth/me");
     role = me.role;
+    $("#lang").value = me.preferred_language; $("#lang").style.display = "inline-block";
     $("#who").textContent = me.name + " (" + me.role.toLowerCase() + ")";
     show(true);
-    if (role === "FAMILY") { loadElders(); return; }
+    updateNotifButton();
+    if (role === "FAMILY" || role === "DOCTOR") {
+      loadElders(); return;
+    }
     $("#log").innerHTML = ""; add("Hello " + me.name + ". Tell me something, or ask me anything you've told me.");
     checkAlerts();
   } catch (e) { logout(); }
@@ -123,33 +180,76 @@ async function send(text) {
     const r = await api("/chat", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({message: text})});
     thinking.remove(); add(r.reply);
     const notes = [];
-    (r.pending_memories || []).forEach(m => notes.push("Waiting for your yes: remember “" + m.normalized_fact + "”" + (m.replaces_id ? " (replaces an older memory)" : "")));
+    const SHARE = {SHARED_FAMILY: " — shared with family", CARE: " — family who help with your health can see it", EMERGENCY: " — shown in emergencies"};
+    (r.pending_memories || []).forEach(m => notes.push("Waiting for your yes: remember “" + m.normalized_fact + "”" + (m.replaces_id ? " (replaces an older memory)" : "") + (SHARE[m.visibility] || " — private")));
+    (r.visibility_changes || []).forEach(v => notes.push("Waiting for your yes: change who sees memory #" + v.memory_id + " to " + ({PRIVATE: "private", SHARED_FAMILY: "family", CARE: "health helpers", EMERGENCY: "emergency"}[v.visibility] || v.visibility)));
     (r.forget_candidates || []).forEach(m => notes.push("Waiting for your yes: forget “" + m.normalized_fact + "”"));
-    if (r.reminder_suggestion) { const s = r.reminder_suggestion; notes.push("Waiting for your yes: reminder “" + s.title + "” on " + (s.date || "?") + " at " + (s.time || "?")); }
-    (r.suggested_people || []).forEach(p => notes.push("Will also add " + p.name + (p.relationship ? " (" + p.relationship + ")" : "") + " to your people"));
+    (r.reminder_suggestions || []).forEach(s => notes.push("Waiting for your yes: reminder “" + s.title + "” " +
+      (s.repeat === "DAILY" ? "every day" : "on " + (s.date || "?")) + " at " + (s.time || "?") + (s.notes ? " (" + s.notes + ")" : "")));
+    if ((r.reminders_to_cancel || []).length) notes.push("Waiting for your yes: remove reminder(s) " + r.reminders_to_cancel.map(x => "\u201c" + x.title + "\u201d").join(", "));
+    (r.access_changes || []).forEach(a => {
+      const parts = [["medicines","medicines"],["appointments","appointments"],["emergency","emergency contacts"],["shared_memories","shared memories"]]
+        .filter(([k]) => a[k] === true).map(([, w]) => w);
+      notes.push("Waiting for your yes: " + (a.action === "REVOKE" ? "remove all access for " + a.name
+        : (a.action === "GRANT" ? "let " : "change what ") + a.name + (a.action === "GRANT" ? " see " : " sees: ") + (parts.length ? parts.join(", ") : "the usual (medicines, appointments, emergency contacts)")));
+    });
+    (r.suggested_people || []).forEach(p => notes.push((p.id ? "Will update " : "Will save ") + p.name + (p.relationship ? " as your " + p.relationship : "") +
+      (p.person_type && !p.id ? " (" + p.person_type.toLowerCase() + ")" : "") +
+      (p.phone ? ", phone " + p.phone : "") + (p.is_emergency_contact ? ", emergency contact" : "")));
     if (notes.length) add(notes.join("\n"), "info");
     $("#quick").style.display = r.waiting_for_yes_or_no ? "flex" : "none";
-  } catch (e) { thinking.remove(); add("Error: " + e.message, "err"); }
+  } catch (e) { thinking.remove(); add(e.message, "err"); }
   checkAlerts();
 }
 $("#say").addEventListener("submit", e => { e.preventDefault(); const t = $("#msg").value; $("#msg").value = ""; send(t); });
 $("#yes").addEventListener("click", () => send("yes"));
 $("#no").addEventListener("click", () => send("no"));
 
+// ---------- desktop pop-ups (no sound) ----------
+const notified = new Set();
+const canNotify = () => "Notification" in window;
+function updateNotifButton() {
+  $("#notif").style.display = canNotify() && Notification.permission === "default" && role === "ELDER" ? "inline-block" : "none";
+}
+function askNotify() {
+  if (canNotify() && Notification.permission === "default") Notification.requestPermission().then(updateNotifButton);
+}
+$("#notif").addEventListener("click", askNotify);
+function popup(a) {
+  if (!canNotify() || Notification.permission !== "granted" || notified.has(a.id)) return;
+  notified.add(a.id);
+  const n = new Notification("MemoryMate reminder: " + a.title, {
+    body: a.when + (a.notes ? " \u00b7 " + a.notes : ""), tag: "mm-" + a.id, requireInteraction: true, silent: true});
+  n.onclick = () => { window.focus(); n.close(); };
+}
+
 async function checkAlerts() {
   if (!token || role !== "ELDER") return;
   try {
+    const notes = await api("/memories/from-others").catch(() => []);
+    $("#docnotes").innerHTML = notes.length ? `<div class="card"><h3>Notes from your doctor and family</h3>` + notes.map(n =>
+      `<div class="sug"><span>${esc(n.text)} · <i>from ${esc(n.from_name)}</i></span>
+       <button data-napprove="${n.id}">Accept</button><button class="light" data-nreject="${n.id}">Decline</button></div>`).join("") + `</div>` : "";
     const sug = await api("/reminders/suggestions");
-    $("#suggestions").innerHTML = sug.length ? `<div class="card"><h3>Suggestions from family</h3>` + sug.map(r =>
-      `<div class="sug"><span><b>${esc(r.title)}</b> · ${esc(r.next_alert_local || new Date(r.due_at).toLocaleString())}</span>
+    $("#suggestions").innerHTML = sug.length ? `<div class="card"><h3>Suggestions from family and doctors</h3>` + sug.map(r =>
+      `<div class="sug"><span><b>${esc(r.title)}</b> · ${esc(r.due_local || r.next_alert_local || new Date(r.due_at).toLocaleString())}${r.suggested_by ? ` · <i>from ${esc(r.suggested_by)}</i>` : ""}</span>
        <button data-accept="${r.id}">Accept</button><button class="light" data-decline="${r.id}">Decline</button></div>`).join("") + `</div>` : "";
   } catch (e) {}
   try {
     const due = await api("/reminders/due");
+    due.forEach(popup);
     $("#alerts").innerHTML = due.map(a => `<div class="alert"><span>⏰ <b>${esc(a.title)}</b> · ${esc(a.when)}${a.notes ? " · " + esc(a.notes) : ""}</span>
       <button class="light" data-done="${a.id}">Done</button><button class="light" data-snooze="${a.id}">In 10 min</button></div>`).join("");
   } catch (e) { /* not logged in or server restarting */ }
 }
+$("#docnotes").addEventListener("click", async e => {
+  const a = e.target.dataset.napprove, d = e.target.dataset.nreject;
+  try {
+    if (a) { await api(`/memories/${a}/approve`, {method: "POST"}); add("Added to your memories.", "info"); }
+    if (d) { await api(`/memories/${d}/reject`, {method: "POST"}); add("Declined.", "info"); }
+  } catch (err) { add(err.message, "err"); }
+  checkAlerts();
+});
 $("#suggestions").addEventListener("click", async e => {
   const a = e.target.dataset.accept, d = e.target.dataset.decline;
   try {
@@ -165,10 +265,33 @@ $("#alerts").addEventListener("click", async e => {
   checkAlerts();
 });
 // ---------- family view ----------
+// The link stores YOUR relation to them ("daughter"); show THEIR role for you, gender-neutral.
+const ROLE = [
+  [/\b(daughter-in-law|son-in-law)\b/, "Your parent-in-law"],
+  [/\b(daughter|son|child|kid)\b/, "Your parent"],
+  [/\b(granddaughter|grandson|grandchild)\b/, "Your grandparent"],
+  [/\b(wife|husband|spouse|partner)\b/, "Your spouse"],
+  [/\b(sister|brother|sibling)\b/, "Your sibling"],
+  [/\b(niece|nephew)\b/, "Your aunt or uncle"],
+  [/\b(doctor|physician|nurse)\b/, "Your patient"],
+  [/\b(caregiver|carer|attendant)\b/, "In your care"],
+  [/\b(friend)\b/, "Your friend"],
+  [/\b(neighbou?r)\b/, "Your neighbour"],
+];
+const roleFor = rel => { const r = (rel || "").toLowerCase(); for (const [re, label] of ROLE) if (re.test(r)) return label; return "Family"; };
+let elderLinks = [];
+
 async function loadElders() {
   const links = await api("/family/my-elders").catch(() => []);
-  $("#elder").innerHTML = links.map(l => `<option value="${l.elder_id}">${esc(l.elder_name)} (your ${esc(l.relation)})</option>`).join("");
-  if (!links.length) { $("#dash").innerHTML = `<div class="card">No one has linked you yet. Ask your relative to add you (POST /family/links with your email).</div>`; return; }
+  elderLinks = links;
+  // Linked as a doctor (to anyone)? Then the people you see are your patients.
+  const asDoctor = role === "DOCTOR" || links.some(l => /doctor|nurse|physician/i.test(l.relation || ""));
+  if (links.length) {
+    $("#elderlabel").textContent = asDoctor ? "Patient:" : "Relative:";
+    $("#codetitle").textContent = asDoctor ? "Got a code from a patient?" : "Got a code from a relative?";
+  }
+  $("#elder").innerHTML = links.map(l => `<option value="${l.elder_id}">${esc(l.elder_name)} · ${roleFor(l.relation)}</option>`).join("");
+  if (!links.length) { $("#dash").innerHTML = `<div class="card">You're not connected to anyone yet. Ask your relative to tell MemoryMate "let [your name] see my information", then enter the code they give you below.</div>`; return; }
   const t = new Date(); // local date, not UTC
   $("#sd").value = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
   loadDash();
@@ -179,11 +302,13 @@ async function loadDash() {
   const id = $("#elder").value; if (!id) return;
   try {
     const d = await api(`/family/elders/${id}/dashboard`);
-    let h = `<div class="card"><h3>${esc(d.elder_name)}</h3><p class="muted">As of ${esc(d.as_of)}. Only what ${esc(d.elder_name)} chose to share is shown. Each view is logged for them.</p></div>`;
+    let h = `<div class="card"><h3>${esc(d.elder_name)} · ${roleFor(d.relation)}</h3><p class="muted">As of ${esc(d.as_of)} (updates every minute). Only what ${esc(d.elder_name)} chose to share is shown. Each view is logged for them.</p></div>`;
     if (d.medicines_today) h += `<div class="card"><h3>Medicines today${d.missed_medicines_today ? ` · <span style="color:#c8102e">${d.missed_medicines_today} missed</span>` : ""}</h3>` +
       list(d.medicines_today, m => `<li>${esc(m.title)} at ${esc(m.when.split(", ").pop())}: ${word(m.status)}</li>`) + `</div>`;
-    if (d.upcoming_appointments) h += `<div class="card"><h3>Upcoming appointments</h3>` +
+    if (d.upcoming_appointments) h += `<div class="card"><h3>Upcoming appointments and tasks</h3>` +
       list(d.upcoming_appointments, a => `<li><b>${esc(a.when)}</b>: ${esc(a.title)}</li>`) + `</div>`;
+    if (d.health_notes && d.health_notes.length) h += `<div class="card"><h3>Health notes</h3>` +
+      list(d.health_notes, m => `<li>${esc(m.fact)}</li>`) + `</div>`;
     if (d.shared_memories) h += `<div class="card"><h3>Shared memories</h3>` +
       list(d.shared_memories, m => `<li>${esc(m.fact)} <span class="muted">(${esc(m.told_on)})</span></li>`) + `</div>`;
     if (d.emergency) h += `<div class="card"><h3>Emergency</h3>` +
@@ -193,18 +318,45 @@ async function loadDash() {
     $("#dash").innerHTML = h;
   } catch (e) { $("#dash").innerHTML = `<div class="card m err">Error: ${esc(e.message)}</div>`; }
 }
+$("#joinf").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    const l = await api("/family/join", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({code: $("#jcode").value.trim().toUpperCase()})});
+    $("#jmsg").textContent = "Connected to " + l.elder_name + "."; $("#jcode").value = ""; loadElders();
+  } catch (err) { $("#jmsg").textContent = err.message; }
+});
+$("#notef").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    await api(`/family/elders/${$("#elder").value}/notes`, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({text: $("#ntext").value})});
+    $("#nmsg").textContent = "Sent. It's added once your patient accepts it."; $("#ntext").value = "";
+  } catch (err) { $("#nmsg").textContent = "Couldn't send it: " + err.message; }
+});
 $("#elder").addEventListener("change", loadDash);
 $("#refresh").addEventListener("click", loadDash);
 $("#sugf").addEventListener("submit", async e => {
   e.preventDefault();
   try {
     await api(`/family/elders/${$("#elder").value}/reminders`, {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({title: $("#st").value, kind: $("#sk").value, date: $("#sd").value, time: $("#sti").value})});
+      body: JSON.stringify({title: $("#st").value, kind: $("#sk").value, date: $("#sd").value, time: $("#sti").value,
+                            repeat: $("#srep").value, notes: $("#snotes").value || null})});
     $("#sugmsg").textContent = "Suggested. It will ring once they accept it."; $("#st").value = "";
   } catch (err) { $("#sugmsg").textContent = "Couldn't suggest it: " + err.message; }
 });
 
-setInterval(checkAlerts, 30000);
+// Check for ringing reminders every 20 s from a worker: Chrome slows or pauses normal timers in background
+// tabs, but much less so in workers. Also check the moment the tab or window comes back into view.
+try {
+  const ticker = new Worker(URL.createObjectURL(new Blob(["setInterval(() => postMessage(1), 20000);"],
+                                                         {type: "text/javascript"})));
+  ticker.onmessage = () => checkAlerts();
+} catch (e) { setInterval(checkAlerts, 20000); }
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkAlerts(); });
+window.addEventListener("focus", checkAlerts);
+// Family / doctor dashboard: refresh every minute so "taken" and "missed" show up by themselves.
+setInterval(() => { if (token && (role === "FAMILY" || role === "DOCTOR") && $("#elder").value) loadDash(); }, 60000);
 if (token) start(); else show(false);
 }
 </script></body></html>"""

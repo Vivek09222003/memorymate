@@ -16,8 +16,14 @@ class Settings(BaseSettings):
     # AI (Step 3). Get a key at https://aistudio.google.com/apikey
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
+    # Used automatically when the main model is busy (503). Leave empty to turn off.
+    gemini_fallback_model: str = "gemini-3.6-flash"
     # Step 4b: multilingual text embeddings; its size must match EMBEDDING_DIM.
     embedding_model: str = "gemini-embedding-001"
+    # A ringing reminder nobody answers becomes MISSED after this many minutes (set 2 for quick testing).
+    missed_after_minutes: int = 60
+    # Give up on a Gemini call after this many seconds, instead of waiting forever.
+    ai_timeout_seconds: int = 25
 
     # Used for "today", "tomorrow" and the dates shown to the user.
     timezone: str = "Asia/Kolkata"

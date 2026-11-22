@@ -24,6 +24,13 @@ from app.database import Base
 class UserRole(str, enum.Enum):
     ELDER = "ELDER"      # the person MemoryMate helps
     FAMILY = "FAMILY"    # a trusted family member or caregiver
+    DOCTOR = "DOCTOR"    # the elder's doctor: sees health information, can suggest medicines and notes
+
+
+
+
+# People who can be linked to an elder and see what the elder allows.
+HELPER_ROLES = (UserRole.FAMILY, UserRole.DOCTOR)
 
 
 class PersonType(str, enum.Enum):
@@ -103,7 +110,8 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     people: Mapped[list["Person"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
-    memories: Mapped[list["Memory"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
+    memories: Mapped[list["Memory"]] = relationship(back_populates="owner", cascade="all, delete-orphan",
+                                                    foreign_keys="Memory.owner_id")
 
 
 class Person(Base):
@@ -157,6 +165,8 @@ class Memory(Base):
     source_message_id: Mapped[int | None] = mapped_column(ForeignKey("messages.id", ondelete="SET NULL"))
     # Step 4c: the older memory this one corrects (it becomes HISTORICAL when this is approved)
     replaces_id: Mapped[int | None] = mapped_column(ForeignKey("memories.id", ondelete="SET NULL"))
+    # Doctor's notes: who wrote it (the elder still has to accept it)
+    suggested_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     memory_type: Mapped[MemoryType] = mapped_column(_enum(MemoryType))
     original_text: Mapped[str] = mapped_column(Text)        # the user's own words, any language
@@ -177,7 +187,7 @@ class Memory(Base):
     # Filled in Step 4 (vector search).
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim), nullable=True)
 
-    owner: Mapped[User] = relationship(back_populates="memories")
+    owner: Mapped[User] = relationship(back_populates="memories", foreign_keys=[owner_id])
     person: Mapped[Person | None] = relationship(back_populates="memories")
     source_message: Mapped[Message | None] = relationship()
 
@@ -228,6 +238,7 @@ class ReminderOccurrence(Base):
 
 
 class LinkStatus(str, enum.Enum):
+    INVITED = "INVITED"   # access given, waiting for the family member to join with the code
     ACTIVE = "ACTIVE"
     REVOKED = "REVOKED"
 
@@ -239,8 +250,10 @@ class FamilyLink(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     elder_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    family_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    family_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     relation: Mapped[str] = mapped_column(String(50))  # "son", "daughter", "doctor"
+    invite_name: Mapped[str | None] = mapped_column(String(100))  # who it's for, before they join
+    invite_code: Mapped[str | None] = mapped_column(String(12), unique=True)  # they enter it to join
     status: Mapped[LinkStatus] = mapped_column(_enum(LinkStatus), default=LinkStatus.ACTIVE)
 
     can_see_medicines: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -252,7 +265,11 @@ class FamilyLink(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     elder: Mapped[User] = relationship(foreign_keys=[elder_id])
-    family_user: Mapped[User] = relationship(foreign_keys=[family_user_id])
+    family_user: Mapped[User | None] = relationship(foreign_keys=[family_user_id])
+
+    @property
+    def display_name(self) -> str:
+        return self.family_user.name if self.family_user else (self.invite_name or "family member")
 
 
 class AccessLog(Base):
