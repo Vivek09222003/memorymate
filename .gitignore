@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .env
 node_modules/
+
+# Private notes for AI sessions (not for GitHub)
+PROJECT_CONTEXT.md
