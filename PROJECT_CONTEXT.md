@@ -3,7 +3,7 @@
 > **For the AI reading this:** this file brings you up to speed on the project. Read it fully before suggesting changes. Then read the files you need in `backend/app/`. The code is the source of truth if it disagrees with this file.
 
 ## About the developer
-- Akash, a 3rd-semester student working on Windows in VS Code (PowerShell terminal), timezone IST (Asia/Kolkata).
+- Vivek Chandra, a 3rd-semester student working on Windows in VS Code (PowerShell terminal), timezone IST (Asia/Kolkata).
 - Project folder: `C:\Users\akash_s6h7xpa\Desktop\Project_3rd sem\memorymate-step1\memorymate-app`
 - GitHub: private repo `Vivek09222003/memorymate`. Friends are added as collaborators.
 
