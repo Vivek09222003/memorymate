@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai import AIError
+from app.config import settings
 from app.embeddings import embed
 from app.models import Memory, MemoryStatus, Person, Visibility
 
@@ -23,6 +24,8 @@ ALL_LEVELS = list(Visibility)
 # Keep "by meaning" results only if they are about as close as the best one.
 # Example: best 0.28 → keep up to 0.38, so unrelated memories at 0.42+ are dropped.
 CLOSE_TO_BEST = 0.10
+# ...and never one farther than settings.max_memory_distance, even if it is the best:
+# when nothing really matches, the AI gets no memory and says "you haven't told me that yet".
 
 
 @dataclass
@@ -79,9 +82,12 @@ def search(db: Session, owner_id: int, question: str, people: list[Person],
             .order_by(distance)
             .limit(k)
         ).all()
+        if rows:
+            log.info("Closest memory distances: %s", ", ".join(f"{float(d):.2f}" for _, d in rows[:5]))
         if close_only and rows:
             best = float(rows[0][1])
-            rows = [(m, d) for m, d in rows if float(d) <= best + CLOSE_TO_BEST]
+            limit = min(best + CLOSE_TO_BEST, settings.max_memory_distance)
+            rows = [(m, d) for m, d in rows if float(d) <= limit]
         for m, d in rows:
             if m.id in hits:
                 hits[m.id].distance = float(d)

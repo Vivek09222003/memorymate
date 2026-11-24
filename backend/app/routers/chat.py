@@ -351,14 +351,6 @@ def chat(data: ChatIn, user: User = Depends(get_current_user), db: Session = Dep
         db.add(memory)
         pending.append(memory)
 
-    # Everything they said is already remembered: say so instead of asking "Should I save it?".
-    reply = result.reply
-    if already and not pending and not suggested and not result.reminders and not result.access_changes \
-            and not result.visibility_changes and not result.cancel_reminder_ids \
-            and "?" in reply:
-        # The AI still asked to save something we already have: answer naturally instead.
-        reply = ALREADY_KNOW.get(user.preferred_language, ALREADY_KNOW["en"])
-
     # Memories the user asked to forget. Only offered here; DELETE /memories/{id} confirms.
     forget = [relevant_by_id[i] for i in result.forget_memory_ids
               if i in relevant_by_id and relevant_by_id[i].status == MemoryStatus.ACTIVE]
@@ -375,6 +367,14 @@ def chat(data: ChatIn, user: User = Depends(get_current_user), db: Session = Dep
             p.id = existing.id
             p.name = existing.name
             suggested.append(p)
+
+    # Everything they said is already remembered: say so instead of asking "Should I save it?".
+    reply = result.reply
+    if already and not pending and not forget and not suggested and not result.reminders and not result.access_changes \
+            and not result.visibility_changes and not result.cancel_reminder_ids \
+            and "?" in reply:
+        # The AI still asked to save something we already have: answer naturally instead.
+        reply = ALREADY_KNOW.get(user.preferred_language, ALREADY_KNOW["en"])
 
     # Reminders the user asked to remove (confirmed with "yes").
     cancel_list = []

@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     # A ringing reminder nobody answers becomes MISSED after this many minutes (set 2 for quick testing).
     missed_after_minutes: int = 60
+    # Memory search "by meaning": ignore memories farther than this (cosine distance, 0 = same meaning).
+    # Stops unrelated memories reaching the AI when nothing really matches. Tune it with
+    # GET /memories/search?q=...&show_all=true, which shows each memory's distance.
+    max_memory_distance: float = 0.5
     # Give up on a Gemini call after this many seconds, instead of waiting forever.
     ai_timeout_seconds: int = 25
 
