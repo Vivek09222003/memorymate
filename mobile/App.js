@@ -1,7 +1,7 @@
 // MemoryMate mobile app. Elders get four tabs (Chat, Today, Help, Me); family and doctors get FamilyApp.
 // Reminders ring from the phone itself; the app also checks the server every 20 seconds while open.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, AppState, ActivityIndicator } from "react-native";
+import { View, StyleSheet, AppState, ActivityIndicator } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as Notifications from "expo-notifications";
@@ -13,13 +13,14 @@ import TodayScreen from "./src/screens/TodayScreen";
 import HelpScreen from "./src/screens/HelpScreen";
 import MeScreen from "./src/screens/MeScreen";
 import FamilyApp from "./src/family/FamilyApp";
-import { C, F } from "./src/theme";
+import { Banner, Header, TabBar, greeting, todayLine } from "./src/components/Frame";
+import { C } from "./src/theme";
 
 const TABS = [
-  ["chat", "💬", "Chat"],
-  ["today", "📋", "Today"],
-  ["help", "🚨", "Help"],
-  ["me", "👤", "Me"],
+  ["chat", "chatbubble-ellipses", "Talk"],
+  ["today", "today", "Today"],
+  ["help", "alert-circle", "Help"],
+  ["me", "person-circle", "Me"],
 ];
 
 export default function App() {
@@ -93,20 +94,15 @@ function Main() {
   const onEmergency = (a) => { setAlert(a); setTab("help"); };
   return (
     <SafeAreaView style={s.screen} edges={["top", "left", "right", "bottom"]}>
-      <View style={s.header}>
-        <Text style={s.brand}>🧠 MemoryMate</Text>
-        <Text style={s.hello} numberOfLines={1}>Hi, {me.name.split(" ")[0]}</Text>
-      </View>
+      <Header title={greeting(me.name)} subtitle={todayLine()} />
 
       {alert && tab !== "help" && (
-        <Pressable style={s.redBar} onPress={() => setTab("help")}>
-          <Text style={s.barText}>🚨 Help alert is on. Tap to see who to call.</Text>
-        </Pressable>
+        <Banner tone="danger" icon="alert-circle" text="Your help alert is on. Tap to see who to call." onPress={() => setTab("help")} />
       )}
       {ringing.length > 0 && tab !== "today" && (
-        <Pressable style={s.ringBar} onPress={() => { setTab("today"); setTodayKey((k) => k + 1); }}>
-          <Text style={s.barText}>⏰ {ringing[0].title}{ringing.length > 1 ? ` and ${ringing.length - 1} more` : ""}: tap to answer</Text>
-        </Pressable>
+        <Banner tone="warn" icon="alarm-outline"
+                text={`Time for: ${ringing[0].title}${ringing.length > 1 ? ` and ${ringing.length - 1} more` : ""}`}
+                onPress={() => { setTab("today"); setTodayKey((k) => k + 1); }} />
       )}
 
       {/* All tabs stay mounted, so the chat isn't lost when you switch. */}
@@ -115,17 +111,8 @@ function Main() {
       <View style={[s.page, tab !== "help" && s.hidden]}><HelpScreen alert={alert} setAlert={setAlert} /></View>
       <View style={[s.page, tab !== "me" && s.hidden]}><MeScreen me={me} setMe={setMe} onLogout={signOut} /></View>
 
-      <View style={s.tabs}>
-        {TABS.map(([key, icon, label]) => (
-          <Pressable key={key} accessibilityRole="tab" accessibilityState={{ selected: tab === key }}
-                     onPress={() => { setTab(key); if (key === "today") setTodayKey((k) => k + 1); }}
-                     style={[s.tab, tab === key && s.tabOn, key === "help" && s.tabHelp]}>
-            <Text style={s.tabIcon}>{icon}</Text>
-            <Text style={[s.tabText, tab === key && { color: C.ink, fontWeight: "800" }, key === "help" && { color: C.red }]}>{label}</Text>
-            {key === "today" && ringing.length > 0 && <View style={s.dot} />}
-          </Pressable>
-        ))}
-      </View>
+      <TabBar tabs={TABS} value={tab} dots={{ today: ringing.length > 0, help: !!alert }}
+              onChange={(key) => { setTab(key); if (key === "today") setTodayKey((k) => k + 1); }} />
     </SafeAreaView>
   );
 }
@@ -133,21 +120,6 @@ function Main() {
 const s = StyleSheet.create({
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: C.bg },
   screen: { flex: 1, backgroundColor: C.bg },
-  header: { backgroundColor: C.sun, paddingHorizontal: 16, paddingVertical: 12, flexDirection: "row", alignItems: "center" },
-  brand: { fontSize: F.big, fontWeight: "800", color: C.ink, flex: 1 },
-  hello: { fontSize: F.body, color: C.ink, maxWidth: "45%" },
-  redBar: { backgroundColor: C.red, padding: 12 },
-  ringBar: { backgroundColor: C.ink, padding: 12 },
-  barText: { color: "#fff", fontSize: F.body, fontWeight: "700", textAlign: "center" },
   page: { flex: 1 },
   hidden: { display: "none" },
-  tabs: { flexDirection: "row", borderTopWidth: 1, borderColor: C.line, backgroundColor: "#fff" },
-  tab: { flex: 1, alignItems: "center", paddingVertical: 8 },
-  tabOn: { backgroundColor: C.brandLight },
-  tabHelp: {},
-  tabIcon: { fontSize: 26 },
-  tabText: { fontSize: F.small, color: C.muted, fontWeight: "600" },
-  dot: { position: "absolute", top: 6, right: "28%", width: 12, height: 12, borderRadius: 6, backgroundColor: C.red },
-  title: { fontSize: F.huge, fontWeight: "800", color: C.ink, marginBottom: 12 },
-  body: { fontSize: F.body, color: C.ink, marginBottom: 20, lineHeight: 28 },
 });

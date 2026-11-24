@@ -1,74 +1,87 @@
-// Me: language, phone number (so family can call you), alarm status, and log out.
+// Me: a short list of options. Tap one to open it; only one is open at a time, so the screen stays clean.
 import { useState } from "react";
-import { View, Text, TextInput, ScrollView, StyleSheet } from "react-native";
+import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { api, getBaseUrl } from "../api";
 import { setupNotifications, syncAlarms } from "../notify";
-import { BigButton, Heading } from "../components/Big";
+import { BigButton, Field, Label, Note, Row, Segmented } from "../components/Big";
 import { C, F, card } from "../theme";
 
 const LANGS = [["en", "English"], ["hi", "हिन्दी"], ["hinglish", "Hinglish"]];
+const LANG_NAME = { en: "English", hi: "हिन्दी", hinglish: "Hinglish" };
 
 export default function MeScreen({ me, setMe, onLogout }) {
+  const [open, setOpen] = useState(null);       // "lang" | "phone" | "alarms" | null
   const [phone, setPhone] = useState(me.phone || "");
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg] = useState(null);
+
+  const toggle = (k) => { setOpen(open === k ? null : k); setMsg(null); };
 
   async function save(changes, ok) {
-    try { setMe(await api("/auth/me", { method: "PATCH", body: changes })); setMsg(ok); }
-    catch (e) { setMsg(e.message); }
+    try { setMe(await api("/auth/me", { method: "PATCH", body: changes })); setMsg({ tone: "good", text: ok }); }
+    catch (e) { setMsg({ tone: "danger", text: e.message }); }
   }
 
   async function alarms() {
     const allowed = await setupNotifications();
-    if (!allowed) return setMsg("Notifications are turned off. Please allow them in the phone's Settings → Apps → Expo Go → Notifications.");
+    if (!allowed) return setMsg({ tone: "warn", text: "Notifications are turned off. Please allow them in your phone's Settings, under this app." });
     const n = await syncAlarms();
-    setMsg(n === null ? "Couldn't reach the server, so your old alarms are kept." : `✅ ${n} alarm${n === 1 ? "" : "s"} set on this phone for the next 2 days.`);
+    setMsg(n === null
+      ? { tone: "warn", text: "Couldn't reach MemoryMate, so your existing alarms are kept." }
+      : { tone: "good", text: `${n} reminder${n === 1 ? "" : "s"} set on this phone for the next 2 days.` });
   }
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 12 }}>
-      <View style={card}>
-        <Text style={s.name}>{me.name}</Text>
-        <Text style={s.muted}>{me.email}</Text>
-      </View>
-
-      <View style={card}>
-        <Heading>Language</Heading>
-        <Text style={s.muted}>MemoryMate replies in this language.</Text>
-        <View style={s.row}>
-          {LANGS.map(([code, label]) => (
-            <BigButton key={code} small title={label} kind={me.preferred_language === code ? "primary" : "light"} style={{ flex: 1 }}
-                       onPress={() => save({ preferred_language: code }, "Language changed.")} />
-          ))}
+    <ScrollView contentContainerStyle={{ padding: 16 }}>
+      <View style={[card, s.profile]}>
+        <View style={s.avatar}><Text style={s.avatarText}>{me.name.trim()[0]?.toUpperCase()}</Text></View>
+        <View style={{ flex: 1 }}>
+          <Text style={s.name}>{me.name}</Text>
+          <Text style={s.muted}>{me.email}</Text>
         </View>
       </View>
 
-      <View style={card}>
-        <Heading>My phone number</Heading>
-        <Text style={s.muted}>So your family can call you from an emergency alert.</Text>
-        <TextInput style={s.input} value={phone} onChangeText={setPhone} placeholder="98123 45678" keyboardType="phone-pad" />
-        <BigButton small title="Save number" onPress={() => save({ phone: phone.trim() || null }, "Phone number saved.")} />
+      <Label>Settings</Label>
+      <View style={[card, { paddingVertical: 4 }]}>
+        <Row icon="language-outline" title="Language" value={LANG_NAME[me.preferred_language]} onPress={() => toggle("lang")} />
+        {open === "lang" && (
+          <View style={s.open}>
+            <Text style={s.muted}>MemoryMate will talk to you in:</Text>
+            <Segmented options={LANGS} value={me.preferred_language} style={{ marginTop: 8 }}
+                       onChange={(code) => save({ preferred_language: code }, "Language changed.")} />
+          </View>
+        )}
+        <Row icon="call-outline" title="My phone number" value={me.phone || "Not added"} onPress={() => toggle("phone")} />
+        {open === "phone" && (
+          <View style={s.open}>
+            <Text style={s.muted}>Your family can call you from an emergency alert.</Text>
+            <Field value={phone} onChangeText={setPhone} placeholder="98123 45678" keyboardType="phone-pad" style={{ marginTop: 8 }} />
+            <BigButton small title="Save number" onPress={() => save({ phone: phone.trim() || null }, "Phone number saved.")} />
+          </View>
+        )}
+        <Row icon="alarm-outline" title="Reminder alarms" onPress={() => { toggle("alarms"); if (open !== "alarms") alarms(); }} last />
+        {open === "alarms" && (
+          <View style={[s.open, { borderTopWidth: 0 }]}>
+            <Text style={s.muted}>Your reminders ring from this phone, even when the app is closed.</Text>
+          </View>
+        )}
       </View>
 
-      <View style={card}>
-        <Heading>Reminder alarms</Heading>
-        <Text style={s.muted}>Your reminders ring from this phone, even when the app is closed.</Text>
-        <BigButton small title="Check my alarms" kind="light" onPress={alarms} />
-      </View>
+      {msg && <Note tone={msg.tone}>{msg.text}</Note>}
 
-      {!!msg && <Text style={s.msg}>{msg}</Text>}
-
-      <View style={card}>
-        <Text style={s.muted}>Connected to {getBaseUrl()}</Text>
-        <BigButton small title="Log out" kind="redLight" onPress={onLogout} style={{ marginTop: 10 }} />
+      <View style={[card, { paddingVertical: 4 }]}>
+        <Row icon="log-out-outline" title="Log out" tone="danger" onPress={onLogout} last />
       </View>
+      <Text style={s.server}>Connected to {getBaseUrl().replace(/^https?:\/\//, "")}</Text>
     </ScrollView>
   );
 }
 
 const s = StyleSheet.create({
-  name: { fontSize: F.huge, fontWeight: "800", color: C.ink },
-  muted: { fontSize: F.small, color: C.muted, marginBottom: 8 },
-  row: { flexDirection: "row", gap: 8 },
-  input: { fontSize: F.body, borderWidth: 2, borderColor: C.line, borderRadius: 14, padding: 14, marginBottom: 10, color: C.ink, backgroundColor: "#fff" },
-  msg: { fontSize: F.body, color: C.ink, backgroundColor: C.brandLight, padding: 12, borderRadius: 12, marginBottom: 12 },
+  profile: { flexDirection: "row", alignItems: "center", gap: 14 },
+  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: C.brand, alignItems: "center", justifyContent: "center" },
+  avatarText: { fontSize: 22, fontWeight: "700", color: C.onBrand },
+  name: { fontSize: F.big, fontWeight: "700", color: C.ink },
+  muted: { fontSize: F.small, color: C.muted },
+  open: { paddingBottom: 14, paddingHorizontal: 4, borderBottomWidth: 1, borderColor: C.line },
+  server: { fontSize: 13, color: C.faint, textAlign: "center", marginTop: 4 },
 });

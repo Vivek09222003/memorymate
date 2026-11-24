@@ -10,7 +10,7 @@ jest.mock("expo-secure-store", () => {
 jest.mock("expo-constants", () => ({ __esModule: true, default: { expoConfig: { hostUri: "192.168.1.7:8081" } } }));
 
 import Constants from "expo-constants";
-import { api, autoServer, cleanUrl, getBaseUrl, login, saveServer, setOnLoggedOut } from "../src/api";
+import { api, autoServer, cleanUrl, getBaseUrl, login, register, saveServer, setOnLoggedOut } from "../src/api";
 
 const reply = (status, body) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 
@@ -21,6 +21,8 @@ describe("server address", () => {
     expect(cleanUrl("192.168.1.5:8000")).toBe("http://192.168.1.5:8000");
     expect(cleanUrl(" http://192.168.1.5:8000/ ")).toBe("http://192.168.1.5:8000");
     expect(cleanUrl("https://memorymate.onrender.com")).toBe("https://memorymate.onrender.com");
+    expect(cleanUrl("memorymate.onrender.com")).toBe("https://memorymate.onrender.com");   // online: https
+    expect(cleanUrl("localhost:8000")).toBe("http://localhost:8000");
   });
 
   test("autoServer uses the laptop that sent the app, with port 8000", () => {
@@ -81,6 +83,26 @@ describe("api()", () => {
     fetch.mockReturnValueOnce(reply(401, { detail: "expired" }));
     await expect(api("/auth/me")).rejects.toThrow("Please log in again.");
     expect(loggedOut).toHaveBeenCalled();
+  });
+
+  test("create account: signs up, then logs straight in", async () => {
+    fetch.mockReturnValueOnce(reply(201, { id: 1 }))
+         .mockReturnValueOnce(reply(200, { access_token: "NEW" }))
+         .mockReturnValueOnce(reply(200, { name: "Asha", role: "ELDER" }));
+    const me = await register({ name: "Asha", email: "asha@example.com", password: "secret1", role: "ELDER" });
+    expect(me.name).toBe("Asha");
+    expect(fetch.mock.calls[0][0]).toBe(`${getBaseUrl()}/auth/register`);
+    expect(JSON.parse(fetch.mock.calls[0][1].body).role).toBe("ELDER");
+  });
+
+  test("create account: an existing email gives a clear message", async () => {
+    fetch.mockReturnValueOnce(reply(409, { detail: "exists" }));
+    await expect(register({ email: "a@b.co", password: "secret1" })).rejects.toThrow("already exists");
+  });
+
+  test("create account: a wrong family code gives a clear message", async () => {
+    fetch.mockReturnValueOnce(reply(404, { detail: "That code isn't valid (or was already used)." }));
+    await expect(register({ email: "a@b.co", password: "secret1", invite_code: "WRONG" })).rejects.toThrow("code isn't valid");
   });
 
   test("no connection gives a helpful message, not a crash", async () => {

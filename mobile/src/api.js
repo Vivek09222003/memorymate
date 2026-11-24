@@ -9,10 +9,14 @@ let onLoggedOut = () => {};
 export const setOnLoggedOut = (fn) => { onLoggedOut = fn; };
 export const getBaseUrl = () => baseUrl;
 
-// "192.168.1.5:8000" -> "http://192.168.1.5:8000"
+// "192.168.1.5:8000" -> "http://192.168.1.5:8000" (a laptop on the Wi-Fi)
+// "memorymate-grie.onrender.com" -> "https://memorymate-grie.onrender.com" (an online server)
 export function cleanUrl(text) {
   let u = (text || "").trim().replace(/\/+$/, "");
-  if (u && !/^https?:\/\//i.test(u)) u = "http://" + u;
+  if (u && !/^https?:\/\//i.test(u)) {
+    const local = /^(localhost|\d{1,3}(\.\d{1,3}){3})(:\d+)?$/i.test(u);
+    u = (local ? "http://" : "https://") + u;
+  }
   return u;
 }
 
@@ -92,6 +96,24 @@ export async function login(email, password) {
   token = (await r.json()).access_token;
   await SecureStore.setItemAsync("mm_token", token);
   return api("/auth/me");
+}
+
+// Create an account, then log straight in. body: name, email, password, role, preferred_language, phone?, invite_code?
+export async function register(body) {
+  const r = await fetchWithTimeout(baseUrl + "/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => null);
+    const d = data && data.detail;
+    if (r.status === 409) throw new Error("An account with this email already exists. Try logging in.");
+    if (r.status === 404 || r.status === 400) throw new Error(typeof d === "string" ? d : "That code didn't work. Check it with your relative.");
+    if (r.status === 422) throw new Error("Please check the details: a real email, and a password of at least 6 characters.");
+    throw new Error(`Couldn't create the account (${r.status}).`);
+  }
+  return login(body.email, body.password);
 }
 
 // Quick check that the address is right: /docs exists on every MemoryMate server.
