@@ -18,7 +18,7 @@ TEST_URL = os.environ.get(
 os.environ["DATABASE_URL"] = TEST_URL
 os.environ["GEMINI_API_KEY"] = "test-key-not-used"   # the real AI is replaced below
 os.environ["MISSED_AFTER_MINUTES"] = "60"
-os.environ["JWT_SECRET"] = "test-secret"
+os.environ["JWT_SECRET"] = "test-secret-only-for-pytest-not-for-real-use"
 
 import pytest  # noqa: E402
 from sqlalchemy import create_engine, text  # noqa: E402

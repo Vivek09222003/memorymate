@@ -47,6 +47,14 @@ PAGE = r"""<!DOCTYPE html>
   a.call.light{background:#ffe1e6;color:#7a0018}
   .missed{background:#fff6e5;border:3px solid #d9861a;border-radius:16px;padding:12px 18px;margin-bottom:12px}
   .missed h3{margin:0 0 6px;color:#8a4b00;font-size:19px}
+  #overview .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .ov{background:#f7f8fd;border:2px solid #e3e6f6;border-left-width:8px;border-left-color:#2e9e5b;border-radius:14px;padding:10px 14px;font-size:16px;display:flex;flex-direction:column;gap:3px}
+  .ov.attention{border-left-color:#d9861a;background:#fffaf0}
+  .ov.emergency{border-left-color:#c8102e;background:#fff0f2}
+  .ov b.name{font-size:18px}
+  .ov .tag{font-weight:600;font-size:14px}
+  .ov .row{margin-top:6px}
+  .ov button,.ov a.call{padding:6px 12px;font-size:15px}
 </style></head><body>
 <header><b>MemoryMate · test page</b><button class="sos" id="sos" style="display:none" aria-label="Help: alert my family">Help (SOS)</button><button class="light" id="notif" style="display:none">Turn on desktop alerts</button><select id="lang" style="display:none;font:inherit;padding:8px;border-radius:10px" aria-label="Language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select><span id="who"></span><button class="light" id="out" style="display:none">Log out</button></header>
 <main>
@@ -72,6 +80,7 @@ PAGE = r"""<!DOCTYPE html>
   <div id="family" style="display:none">
     <div id="femer"></div>
     <div id="fmissed"></div>
+    <div id="overview"></div>
     <div class="row" style="margin-bottom:12px"><label for="elder" id="elderlabel">Relative:</label><select id="elder" style="font:inherit;padding:8px;border-radius:10px"></select>
       <button class="light" id="refresh">Refresh</button></div>
     <div id="dash"></div>
@@ -421,9 +430,32 @@ async function loadElders() {
   $("#elder").innerHTML = links.map(l => `<option value="${l.elder_id}">${esc(l.elder_name)} · ${roleFor(l.relation)}</option>`).join("");
   if (!links.length) { $("#dash").innerHTML = `<div class="card">You're not connected to anyone yet. Ask your relative to tell MemoryMate "let [your name] see my information", then enter the code they give you below.</div>`; return; }
   const t = new Date(); // local date, not UTC
+  loadOverview();
   $("#sd").value = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
   loadDash();
 }
+// Overview: everyone you look after on one screen, most urgent first. "Open" shows their full dashboard below.
+async function loadOverview() {
+  let rows = [];
+  try { rows = await api("/family/overview"); } catch (e) { return; }
+  if (!rows.length) { $("#overview").innerHTML = ""; return; }
+  const asDoctor = role === "DOCTOR" || rows.some(r => /doctor|nurse|physician/i.test(r.relation || ""));
+  const tag = {emergency: "\u{1F6A8} Needs help now", attention: "\u26A0\uFE0F Missed medicine", ok: "\u2705 All good"};
+  $("#overview").innerHTML = `<div class="card"><h3>${asDoctor ? "My patients" : "My family"} at a glance</h3>
+    <p class="muted">Most urgent first. Updates every minute.</p><div class="grid">` + rows.map(r => `
+    <div class="ov ${r.status}"><b class="name">${esc(r.elder_name)}</b>
+      <span class="muted">${roleFor(r.relation)}</span>
+      <span class="tag">${tag[r.status]}${r.emergency_since ? " · since " + esc(r.emergency_since.split(", ").pop()) : ""}</span>
+      ${r.medicines_total === null ? "" : `<span>Medicines today: ${r.medicines_taken}/${r.medicines_total} taken${r.medicines_missed ? `, <b style="color:#c8102e">${r.medicines_missed} missed</b>` : ""}</span>`}
+      ${r.next_appointment ? `<span>Next: ${esc(r.next_appointment)}, ${esc(r.next_appointment_when)}</span>` : ""}
+      ${r.my_suggestions_waiting ? `<span class="muted">${r.my_suggestions_waiting} of your suggestion${r.my_suggestions_waiting > 1 ? "s" : ""} waiting for an answer</span>` : ""}
+      <div class="row"><button class="light" data-open="${r.elder_id}">Open</button>${r.elder_phone ? `<a class="call${r.status === "emergency" ? "" : " light"}" href="${telOf(r.elder_phone)}">Call</a>` : ""}</div>
+    </div>`).join("") + `</div></div>`;
+}
+$("#overview").addEventListener("click", e => {
+  const id = e.target.dataset.open; if (!id) return;
+  $("#elder").value = id; loadDash(); $("#dash").scrollIntoView({behavior: "smooth"});
+});
 const list = (items, f) => items.length ? "<ul>" + items.map(f).join("") + "</ul>" : `<p class="muted">Nothing here.</p>`;
 const word = s => ({DONE: "✅ taken / done", MISSED: "❌ missed", DUE: "⏰ ringing now", SCHEDULED: "later today", SKIPPED: "cancelled"}[s] || s);
 async function loadDash() {
@@ -463,7 +495,7 @@ $("#notef").addEventListener("submit", async e => {
   } catch (err) { $("#nmsg").textContent = "Couldn't send it: " + err.message; }
 });
 $("#elder").addEventListener("change", loadDash);
-$("#refresh").addEventListener("click", loadDash);
+$("#refresh").addEventListener("click", () => { loadDash(); loadOverview(); });
 $("#sugf").addEventListener("submit", async e => {
   e.preventDefault();
   try {
@@ -484,7 +516,7 @@ try {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkAlerts(); });
 window.addEventListener("focus", checkAlerts);
 // Family / doctor dashboard: refresh every minute so "taken" and "missed" show up by themselves.
-setInterval(() => { if (token && (role === "FAMILY" || role === "DOCTOR") && $("#elder").value) loadDash(); }, 60000);
+setInterval(() => { if (token && (role === "FAMILY" || role === "DOCTOR") && $("#elder").value) { loadDash(); loadOverview(); } }, 60000);
 if (token) start(); else show(false);
 }
 </script></body></html>"""

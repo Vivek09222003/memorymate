@@ -294,6 +294,23 @@ class FamilyDashboard(BaseModel):
     hidden_sections: list[str] = []
 
 
+class ElderOverview(BaseModel):
+    """One row of the overview screen: how each elder or patient is doing today, at a glance.
+    Numbers the elder doesn't share with you stay None."""
+    elder_id: int
+    elder_name: str
+    relation: str
+    status: str                              # "emergency", "attention" (missed medicine) or "ok"
+    elder_phone: str | None = None           # only with the emergency permission
+    emergency_since: str | None = None       # an open Help alert, if any
+    medicines_total: int | None = None       # today's medicine rings
+    medicines_taken: int | None = None
+    medicines_missed: int | None = None
+    next_appointment: str | None = None      # e.g. "Eye check-up"
+    next_appointment_when: str | None = None
+    my_suggestions_waiting: int = 0          # reminders you suggested that they haven't answered yet
+
+
 class MissedDoseOut(BaseModel):
     """A medicine the elder didn't confirm in time, for family who may see medicines."""
     id: int                 # the alert (occurrence) id

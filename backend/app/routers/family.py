@@ -20,7 +20,7 @@ from app.models import (HELPER_ROLES, AccessLog, FamilyLink, LinkStatus, Memory,
                         UserRole, Visibility)
 from app.routers.emergency import alert_out as emergency_alert_out
 from app.routers.reminders import alert_out, new_reminder
-from app.schemas import (AccessLogOut, DoctorNoteIn, EmergencyOut, FamilyDashboard,
+from app.schemas import (AccessLogOut, DoctorNoteIn, ElderOverview, EmergencyOut, FamilyDashboard,
                          FamilyLinkCreate, FamilyLinkOut, FamilyLinkUpdate, InviteCreate, JoinIn, MissedDoseOut, PersonOut,
                          ReminderCreate, ReminderOut, ReminderSuggestionIn, SharedMemoryOut, SuggestedNoteOut)
 from app.security import get_current_user
@@ -165,6 +165,62 @@ def my_elders(user: User = Depends(get_current_user), db: Session = Depends(get_
     _require(user, UserRole.FAMILY)
     return [_link_out(l) for l in db.scalars(
         select(FamilyLink).where(FamilyLink.family_user_id == user.id, FamilyLink.status == LinkStatus.ACTIVE)).all()]
+
+
+@router.get("/overview", response_model=list[ElderOverview])
+def overview(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Family/doctor: every elder or patient who linked you, on one screen, most urgent first:
+    open emergencies, then missed medicines, then everyone else. Each number follows that elder's permissions.
+    Viewing is logged as "overview" (at most once an hour per elder, since the page refreshes every minute)."""
+    _require(user, UserRole.FAMILY)
+    links = db.scalars(select(FamilyLink).where(FamilyLink.family_user_id == user.id,
+                                                FamilyLink.status == LinkStatus.ACTIVE)).all()
+    start, now = _today_start(), local_now()
+    rows: list[ElderOverview] = []
+    for link in links:
+        eid = link.elder_id
+        row = ElderOverview(elder_id=eid, elder_name=link.elder.name, relation=link.relation, status="ok")
+
+        def rings(kind: ReminderKind, frm: datetime, to: datetime):
+            return db.scalars(
+                select(ReminderOccurrence).join(Reminder)
+                .where(ReminderOccurrence.owner_id == eid, ReminderOccurrence.is_main.is_(True),
+                       ReminderOccurrence.for_due_at >= frm, ReminderOccurrence.for_due_at < to,
+                       Reminder.kind == kind, Reminder.visibility.in_(SHAREABLE),
+                       Reminder.status.not_in([ReminderStatus.SUGGESTED, ReminderStatus.CANCELLED]))
+                .order_by(ReminderOccurrence.for_due_at)).all()
+
+        if link.can_see_medicines:
+            meds = rings(ReminderKind.MEDICINE, start, start + timedelta(days=1))
+            row.medicines_total = len(meds)
+            row.medicines_taken = sum(1 for o in meds if o.status == OccurrenceStatus.DONE)
+            row.medicines_missed = sum(1 for o in meds if o.status == OccurrenceStatus.MISSED)
+            if row.medicines_missed:
+                row.status = "attention"
+        if link.can_see_appointments:
+            nxt = next((o for o in rings(ReminderKind.APPOINTMENT, now, start + timedelta(days=30))
+                        if o.status in (OccurrenceStatus.SCHEDULED, OccurrenceStatus.DUE)), None)
+            if nxt:
+                row.next_appointment, row.next_appointment_when = nxt.reminder.title, show(nxt.for_due_at)
+        if link.can_see_emergency:
+            row.elder_phone = link.elder.phone
+            alert = emergency.active_alert(db, eid)
+            if alert:
+                row.status, row.emergency_since = "emergency", show(alert.created_at)
+        row.my_suggestions_waiting = db.scalar(
+            select(func.count()).select_from(Reminder).where(Reminder.owner_id == eid,
+                                                            Reminder.suggested_by_id == user.id,
+                                                            Reminder.status == ReminderStatus.SUGGESTED)) or 0
+
+        recent = db.scalar(select(AccessLog.id).where(AccessLog.elder_id == eid, AccessLog.viewer_id == user.id,
+                                                      AccessLog.section == "overview",
+                                                      AccessLog.created_at >= now - timedelta(hours=1)).limit(1))
+        if recent is None:
+            db.add(AccessLog(elder_id=eid, viewer_id=user.id, section="overview"))
+        rows.append(row)
+    db.commit()
+    order = {"emergency": 0, "attention": 1, "ok": 2}
+    return sorted(rows, key=lambda r: (order[r.status], r.elder_name.lower()))
 
 
 @router.get("/missed-medicines", response_model=list[MissedDoseOut])
