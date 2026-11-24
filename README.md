@@ -75,7 +75,7 @@ Runs the database, so you don't have to install PostgreSQL yourself.
 ### 5. A Google Gemini API key (free)
 The AI part. **Everyone uses their own key. Never share yours.**
 1. Go to https://aistudio.google.com/apikey and sign in with a Google account.
-2. Click **Create API key** and copy it. 
+2. Click **Create API key** and copy it. It starts with `AIza...`.
 3. Keep it somewhere safe. You'll paste it in Part 2, Step 5.
 
 ---
@@ -91,10 +91,10 @@ If the repo is private, the owner must add you as a collaborator first. Open the
 Pick a folder, for example your Desktop:
 ```powershell
 cd $HOME\Desktop
-git clone https://github.com/Vivek09222003/memorymate.git
+git clone https://github.com/<owner-username>/memorymate.git
 cd memorymate
 ```
-For a private repo, a browser window opens the first time and asks you to sign in to GitHub. Sign in and come back.
+Replace `<owner-username>` with the repo owner's GitHub username. For a private repo, a browser window opens the first time and asks you to sign in to GitHub. Sign in and come back.
 
 Then open the folder in VS Code:
 ```powershell
@@ -219,6 +219,23 @@ git commit -m "Short description of what you changed"
 git push
 ```
 Run `git pull` before you start working, so you don't overwrite each other's work.
+
+---
+
+## Automatic tests (pytest)
+
+The tests check login, the chat's "ask before saving" flow, emergency mode, family permissions, reminders and memory search.
+They use a separate **test database** (`memorymate_test`), created automatically, so your real data is never touched.
+They also use a **fake AI**, so they need no Gemini key and run in a few seconds.
+
+```powershell
+# once: install the test tools (venv active, in the backend folder)
+pip install -r requirements-dev.txt
+
+# every time: Docker running, in the backend folder
+pytest
+```
+You should see something like `61 passed`. If a test fails, pytest shows which one and why.
 
 ---
 

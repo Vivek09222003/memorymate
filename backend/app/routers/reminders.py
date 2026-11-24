@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import (FamilyLink, OccurrenceStatus, Person, Reminder, ReminderKind, ReminderOccurrence,
                         ReminderStatus, Repeat, User)
-from app.reminders import advance, first_due, plan_alerts, tick
+from app.reminders import advance, first_due, next_due, plan_alerts, tick
 from app.reminders import cancel as cancel_reminder
-from app.schemas import AlertOut, ReminderCreate, ReminderOut
+from app.schemas import AlertOut, ReminderCreate, ReminderOut, UpcomingRing
 from app.security import get_current_user
 from app.timeutil import local_dt, local_now, local_tz, show
 
@@ -151,6 +151,37 @@ def ringing_now(user: User = Depends(get_current_user), db: Session = Depends(ge
         .order_by(ReminderOccurrence.fire_at)
     ).all()
     return [alert_out(o) for o in alerts]
+
+
+@router.get("/upcoming", response_model=list[UpcomingRing])
+def upcoming(hours: int = Query(48, ge=1, le=168),
+             user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Every ring in the next few hours, for the mobile app to set as alarms on the phone itself.
+    Includes the planned alerts, plus later repeats of daily/weekly reminders (alert_id = None)."""
+    now = datetime.now(timezone.utc)
+    limit = now + timedelta(hours=hours)
+    planned = db.scalars(
+        select(ReminderOccurrence).join(Reminder)
+        .where(ReminderOccurrence.owner_id == user.id,
+               ReminderOccurrence.status == OccurrenceStatus.SCHEDULED,
+               ReminderOccurrence.fire_at <= limit,
+               Reminder.status == ReminderStatus.ACTIVE)
+        .order_by(ReminderOccurrence.fire_at)).all()
+    rings = [UpcomingRing(alert_id=o.id, reminder_id=o.reminder_id, title=o.reminder.title, kind=o.reminder.kind,
+                          notes=o.reminder.notes, when=show(o.for_due_at), ring_at=max(o.fire_at, now),
+                          is_main=o.is_main) for o in planned]
+    # Later repeats: the server plans only the next ring of a repeating reminder, so work out the rest here.
+    for o in planned:
+        r = o.reminder
+        if not o.is_main or r.repeat not in (Repeat.DAILY, Repeat.WEEKLY):
+            continue
+        due = next_due(o.for_due_at, r.repeat)
+        while due is not None and due - timedelta(minutes=r.remind_minutes_before) <= limit:
+            rings.append(UpcomingRing(alert_id=None, reminder_id=r.id, title=r.title, kind=r.kind, notes=r.notes,
+                                      when=show(due), ring_at=due - timedelta(minutes=r.remind_minutes_before),
+                                      is_main=True))
+            due = next_due(due, r.repeat)
+    return sorted(rings, key=lambda x: x.ring_at)
 
 
 @router.get("/today", response_model=list[AlertOut])

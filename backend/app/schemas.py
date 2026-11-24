@@ -204,6 +204,25 @@ class ReminderOut(BaseModel):
     next_alert_local: str | None = None
 
 
+class UpcomingRing(BaseModel):
+    """A time the phone should ring by itself (so reminders work even if the server is asleep).
+    alert_id is None for later repeats of a daily or weekly reminder that the server hasn't planned yet."""
+    alert_id: int | None
+    reminder_id: int
+    title: str
+    kind: ReminderKind
+    notes: str | None
+    when: str              # the event's local time, e.g. "Tue 24 Nov, 9:00 PM"
+    ring_at: datetime      # when the phone should ring
+    is_main: bool
+
+
+class ChatMessageOut(BaseModel):
+    role: str              # "user" or "assistant"
+    text: str
+    at: str
+
+
 class AlertOut(BaseModel):
     """One alert. 'title' and 'when' are ready to show on screen."""
     id: int

@@ -21,7 +21,7 @@ from app.models import (FamilyLink, LinkStatus, Memory, MemoryStatus, MemoryType
 from app.retrieval import search
 from app.routers.emergency import alert_out
 from app.routers.memories import sync_phone
-from app.schemas import ChatIn, ChatOut
+from app.schemas import ChatIn, ChatMessageOut, ChatOut
 from app.security import get_current_user
 from app.timeutil import local_now, local_tz, show
 
@@ -244,6 +244,14 @@ def _find_person(people: list[Person], name: str | None, relation: str | None) -
         if loose:
             return loose
     return None
+
+
+@router.get("/history", response_model=list[ChatMessageOut])
+def history(limit: int = 50, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Your last messages, oldest first, so the mobile app can show the conversation after a restart."""
+    rows = db.scalars(select(Message).where(Message.owner_id == user.id)
+                      .order_by(Message.id.desc()).limit(max(1, min(limit, 200)))).all()
+    return [ChatMessageOut(role=m.role, text=m.text, at=show(m.created_at)) for m in reversed(rows)]
 
 
 @router.post("", response_model=ChatOut)
