@@ -4,13 +4,14 @@ import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { api, getBaseUrl } from "../api";
 import { setupNotifications, syncAlarms } from "../notify";
 import { BigButton, Field, Label, Note, Row, Segmented } from "../components/Big";
+import DeleteAccount from "../components/DeleteAccount";
 import { C, F, card } from "../theme";
 
 const LANGS = [["en", "English"], ["hi", "हिन्दी"], ["hinglish", "Hinglish"]];
 const LANG_NAME = { en: "English", hi: "हिन्दी", hinglish: "Hinglish" };
 
 export default function MeScreen({ me, setMe, onLogout }) {
-  const [open, setOpen] = useState(null);       // "lang" | "phone" | "alarms" | null
+  const [open, setOpen] = useState(null);       // "lang" | "phone" | "alarms" | "delete" | null
   const [phone, setPhone] = useState(me.phone || "");
   const [msg, setMsg] = useState(null);
 
@@ -69,7 +70,9 @@ export default function MeScreen({ me, setMe, onLogout }) {
       {msg && <Note tone={msg.tone}>{msg.text}</Note>}
 
       <View style={[card, { paddingVertical: 4 }]}>
-        <Row icon="log-out-outline" title="Log out" tone="danger" onPress={onLogout} last />
+        <Row icon="log-out-outline" title="Log out" onPress={onLogout} />
+        <Row icon="trash-outline" title="Delete my account" tone="danger" onPress={() => toggle("delete")} last={open !== "delete"} />
+        {open === "delete" && <DeleteAccount isElder onDeleted={onLogout} />}
       </View>
       <Text style={s.server}>Connected to {getBaseUrl().replace(/^https?:\/\//, "")}</Text>
     </ScrollView>

@@ -10,7 +10,7 @@ jest.mock("expo-secure-store", () => {
 jest.mock("expo-constants", () => ({ __esModule: true, default: { expoConfig: { hostUri: "192.168.1.7:8081" } } }));
 
 import Constants from "expo-constants";
-import { api, autoServer, cleanUrl, getBaseUrl, login, register, saveServer, setOnLoggedOut } from "../src/api";
+import { api, autoServer, cleanUrl, deleteAccount, getBaseUrl, login, register, saveServer, setOnLoggedOut } from "../src/api";
 
 const reply = (status, body) => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 
@@ -103,6 +103,15 @@ describe("api()", () => {
   test("create account: a wrong family code gives a clear message", async () => {
     fetch.mockReturnValueOnce(reply(404, { detail: "That code isn't valid (or was already used)." }));
     await expect(register({ email: "a@b.co", password: "secret1", invite_code: "WRONG" })).rejects.toThrow("code isn't valid");
+  });
+
+  test("delete account sends the password and shows a wrong-password message", async () => {
+    fetch.mockReturnValueOnce(reply(403, { detail: "That password isn't right, so nothing was deleted." }));
+    await expect(deleteAccount("nope")).rejects.toThrow("nothing was deleted");
+    expect(fetch.mock.calls[0][0]).toBe(`${getBaseUrl()}/auth/delete-account`);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ password: "nope" });
+    fetch.mockReturnValueOnce(reply(204, null));
+    await expect(deleteAccount("test1234")).resolves.toBeUndefined();
   });
 
   test("no connection gives a helpful message, not a crash", async () => {

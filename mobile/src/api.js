@@ -121,6 +121,12 @@ export async function register(body) {
   return login(body.email, body.password);
 }
 
+// Delete my account and all its data, for good. Needs the password; then forgets the login on this device.
+export async function deleteAccount(password) {
+  await api("/auth/delete-account", { method: "POST", body: { password } });
+  await logout();
+}
+
 // Quick check that the address is right: /docs exists on every MemoryMate server.
 export async function ping() {
   const r = await fetchWithTimeout(baseUrl + "/docs", {}, 8000);

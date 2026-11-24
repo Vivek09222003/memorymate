@@ -1,13 +1,13 @@
 """Register, log in, and see who is logged in."""
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.family_access import join
 from app.models import User
-from app.schemas import Token, UserCreate, UserOut, UserUpdate
+from app.schemas import DeleteAccountIn, Token, UserCreate, UserOut, UserUpdate
 from app.security import create_access_token, get_current_user, hash_password, verify_password
 
 router = APIRouter(prefix="/auth", tags=["Login"])
@@ -59,3 +59,15 @@ def update_me(data: UserUpdate, user: User = Depends(get_current_user), db: Sess
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.post("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+def delete_account(data: DeleteAccountIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Delete your account and everything in it, for good: memories, chats, reminders, people, emergency
+    alerts, access logs and family links. Needs your password, so nobody can do it from an unlocked phone by
+    accident. Notes and reminders you sent to others stay with them, without your name.
+    The database removes the linked rows itself (ON DELETE CASCADE / SET NULL on every link to users)."""
+    if not verify_password(data.password, user.password_hash):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "That password isn't right, so nothing was deleted.")
+    db.execute(delete(User).where(User.id == user.id))
+    db.commit()

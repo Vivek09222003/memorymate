@@ -21,6 +21,10 @@ class UserCreate(BaseModel):
                                     description="Family accounts: the code your relative gave you")
 
 
+class DeleteAccountIn(BaseModel):
+    password: str = Field(min_length=1, max_length=72)
+
+
 class UserUpdate(BaseModel):
     """Send only what changes."""
     name: str | None = Field(default=None, min_length=1, max_length=100)

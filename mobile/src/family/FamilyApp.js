@@ -14,6 +14,7 @@ import { BigButton, Field, Label, Note, Row } from "../components/Big";
 import { Header, TabBar, greeting } from "../components/Frame";
 import AlertsBox from "./AlertsBox";
 import ElderDetail from "./ElderDetail";
+import DeleteAccount from "../components/DeleteAccount";
 import { call, isDoctorLink, loadIds, roleFor, saveIds, timeOf } from "./common";
 import { C, F, card } from "../theme";
 
@@ -38,6 +39,7 @@ export default function FamilyApp({ me, onLogout }) {
   const [detailKey, setDetailKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [showDelete, setShowDelete] = useState(false);
   const seen = useRef({ alerts: new Set(), missed: new Set(), first: true });
   const hiddenMissed = useRef([]);
 
@@ -147,7 +149,9 @@ export default function FamilyApp({ me, onLogout }) {
           </View>
           <Note>Alerts appear while this app is open or recently used. Keep it on the phone you check most.</Note>
           <View style={[card, { paddingVertical: 4 }]}>
-            <Row icon="log-out-outline" title="Log out" tone="danger" onPress={onLogout} last />
+            <Row icon="log-out-outline" title="Log out" onPress={onLogout} />
+            <Row icon="trash-outline" title="Delete my account" tone="danger" onPress={() => setShowDelete((v) => !v)} last={!showDelete} />
+            {showDelete && <DeleteAccount isElder={false} onDeleted={onLogout} />}
           </View>
           <Text style={s.foot}>Connected to {getBaseUrl().replace(/^https?:\/\//, "")}</Text>
         </ScrollView>
