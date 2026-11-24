@@ -23,3 +23,21 @@ services:
         value: Asia/Kolkata
       - key: MISSED_AFTER_MINUTES
         value: "60"
+
+  # The new app design as a website (the Expo app's web version). Free static sites don't sleep.
+  # Render builds it from the mobile/ folder on every push and serves the files from dist/.
+  - type: web
+    name: memorymate-web
+    runtime: static
+    rootDir: mobile
+    buildCommand: npm ci && npx expo export --platform web
+    staticPublishPath: ./dist
+    envVars:
+      - key: EXPO_PUBLIC_SERVER_URL      # the website talks to the backend above
+        value: https://memorymate-grie.onrender.com
+      - key: NODE_VERSION
+        value: "22"
+    routes:
+      - type: rewrite                     # one-page app: every path shows index.html
+        source: /*
+        destination: /index.html

@@ -1,5 +1,6 @@
 // Talks to the MemoryMate backend (FastAPI). Same routes as the /test page.
-import * as SecureStore from "expo-secure-store";
+import { Platform } from "react-native";
+import * as Storage from "./storage";
 import Constants from "expo-constants";
 
 let baseUrl = "";
@@ -28,6 +29,10 @@ export function cleanUrl(text) {
 export function autoServer() {
   const online = cleanUrl(process.env.EXPO_PUBLIC_SERVER_URL || "");
   if (online) return online;
+  // In a laptop browser (npx expo start --web) the backend is on the same computer.
+  if (Platform.OS === "web" && typeof window !== "undefined" && window.location) {
+    return `http://${window.location.hostname || "localhost"}:8000`;
+  }
   const host = Constants.expoConfig?.hostUri || Constants.expoGoConfig?.debuggerHost || "";
   const ip = host.split(":")[0];
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) ? `http://${ip}:8000` : "";
@@ -35,20 +40,20 @@ export function autoServer() {
 
 // Saved between app starts: the server address and the login token (token in secure storage).
 export async function loadSaved() {
-  baseUrl = autoServer() || (await SecureStore.getItemAsync("mm_server")) || "";
-  token = (await SecureStore.getItemAsync("mm_token")) || "";
+  baseUrl = autoServer() || (await Storage.getItem("mm_server")) || "";
+  token = (await Storage.getItem("mm_token")) || "";
   return { baseUrl, hasToken: !!token };
 }
 
 export async function saveServer(url) {
   baseUrl = cleanUrl(url);
-  await SecureStore.setItemAsync("mm_server", baseUrl);
+  await Storage.setItem("mm_server", baseUrl);
   return baseUrl;
 }
 
 export async function logout() {
   token = "";
-  await SecureStore.deleteItemAsync("mm_token");
+  await Storage.removeItem("mm_token");
 }
 
 // fetch with a time limit, so a wrong address or a sleeping server doesn't hang forever
@@ -94,7 +99,7 @@ export async function login(email, password) {
   });
   if (!r.ok) throw new Error(r.status === 401 ? "Wrong email or password." : `Login failed (${r.status}).`);
   token = (await r.json()).access_token;
-  await SecureStore.setItemAsync("mm_token", token);
+  await Storage.setItem("mm_token", token);
   return api("/auth/me");
 }
 

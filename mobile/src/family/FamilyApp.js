@@ -5,7 +5,7 @@
 // While the app is open it checks every 20 seconds and shows a notification for anything new.
 // (Alerts while the app is fully closed need push notifications: a later step with Firebase.)
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, ScrollView, StyleSheet, Pressable, AppState, RefreshControl } from "react-native";
+import { View, Text, ScrollView, StyleSheet, Pressable, AppState, RefreshControl, Platform } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
 import { api, getBaseUrl } from "../api";
@@ -24,8 +24,10 @@ const STATUS = {
 };
 const TABS = [["home", "home", "Home"], ["connect", "link", "Connect"], ["me", "person-circle", "Me"]];
 
-const popNow = (title, body) =>
+const popNow = (title, body) => {
+  if (Platform.OS === "web") return;   // the laptop browser shows the alerts on screen instead
   Notifications.scheduleNotificationAsync({ content: { title, body, sound: "default" }, trigger: null }).catch(() => {});
+};
 
 export default function FamilyApp({ me, onLogout }) {
   const [tab, setTab] = useState("home");
@@ -66,8 +68,9 @@ export default function FamilyApp({ me, onLogout }) {
     // The open details refresh every minute (each view is logged for the elder, so not more often).
     const detail = setInterval(() => setDetailKey((k) => k + 1), 60000);
     const sub = AppState.addEventListener("change", (st) => { if (st === "active") refresh(); });
-    const tap = Notifications.addNotificationResponseReceivedListener(() => { setTab("home"); setOpen(null); refresh(); });
-    return () => { clearInterval(every); clearInterval(detail); sub.remove(); tap.remove(); };
+    const tap = Platform.OS === "web" ? null
+      : Notifications.addNotificationResponseReceivedListener(() => { setTab("home"); setOpen(null); refresh(); });
+    return () => { clearInterval(every); clearInterval(detail); sub.remove(); tap?.remove(); };
   }, [refresh]);
 
   async function pull() { setLoading(true); await refresh(); setLoading(false); }

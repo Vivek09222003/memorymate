@@ -1,7 +1,7 @@
 // MemoryMate mobile app. Elders get four tabs (Chat, Today, Help, Me); family and doctors get FamilyApp.
 // Reminders ring from the phone itself; the app also checks the server every 20 seconds while open.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, StyleSheet, AppState, ActivityIndicator } from "react-native";
+import { View, StyleSheet, AppState, ActivityIndicator, Platform } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as Notifications from "expo-notifications";
@@ -43,7 +43,7 @@ function Main() {
 
   const signOut = useCallback(async () => {
     await logout();
-    await Notifications.cancelAllScheduledNotificationsAsync();
+    if (Platform.OS !== "web") await Notifications.cancelAllScheduledNotificationsAsync();
     setMe(null); setAlert(null); setRinging([]); setTab("chat");
   }, []);
 
@@ -79,8 +79,9 @@ function Main() {
       appState.current = next;
     });
     // Tapping a reminder notification opens the Today tab.
-    const tap = Notifications.addNotificationResponseReceivedListener(() => { setTab("today"); setTodayKey((k) => k + 1); poll(); });
-    return () => { clearInterval(every); sub.remove(); tap.remove(); };
+    const tap = Platform.OS === "web" ? null
+      : Notifications.addNotificationResponseReceivedListener(() => { setTab("today"); setTodayKey((k) => k + 1); poll(); });
+    return () => { clearInterval(every); sub.remove(); tap?.remove(); };
   }, [me, poll]);
 
   if (!ready) return <View style={s.loading}><ActivityIndicator size="large" color={C.brand} /></View>;

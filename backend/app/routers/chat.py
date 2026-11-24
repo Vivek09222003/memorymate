@@ -157,9 +157,26 @@ TROUBLE = {
 }
 
 # "Tell me about everyone / everything": search alone returns only the closest few memories.
-BROAD = re.compile(r"\b(every\s?(one|body|thing|person|people)|all (the )?(people|my|of|memories|you know)|"
-                   r"show (me )?(all|everything)|list (all|everything|my)|whole family|"
-                   r"sab(hi|ko|kuch)?|sabke)\b", re.IGNORECASE)
+_BROAD_LATIN = re.compile(
+    r"\b(every\s?(one|body|thing|person|people)|all (the )?(people|my|of|memories|you know)|"
+    r"show (me )?(all|everything)|list (all|everything|my)|whole family|"
+    r"(about|tell me about) (me|myself)|what (all )?do you (know|remember)|anything else|what else|"
+    r"sab(hi|ko|kuch)?|sabke|saar[ei]|sar[ei]|poor[ia]|pur[ia]|kya kya|baaki|"
+    r"(mere|meri|mujhe|apne) (baare|bare) (me|mein|main)|"
+    r"(aur|or) (kuch|kya)|kuch aur)\b", re.IGNORECASE)
+# Devanagari: \b doesn't work well with Hindi vowel signs, so match these phrases directly.
+_BROAD_HINDI = re.compile(r"(सब कुछ|सभी|सारी|सारे|पूरी|मेरे बारे में|मेरी बारे में|और कुछ|और क्या|क्या क्या|बाकी)")
+
+
+class _Broad:
+    """Questions like "tell me everything", "mere baare mein batao", "aur kuch?": give the AI all memories,
+    not only the closest few, so the answer is complete the first time."""
+    @staticmethod
+    def search(text: str) -> bool:
+        return bool(_BROAD_LATIN.search(text) or _BROAD_HINDI.search(text))
+
+
+BROAD = _Broad()
 
 
 # Words that show the user really meant to share memories (not just "health information").

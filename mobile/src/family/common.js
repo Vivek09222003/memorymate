@@ -1,6 +1,6 @@
 // Small helpers shared by the family / doctor screens.
 import { Linking } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import * as Storage from "../storage";
 
 // The link stores YOUR relation to them ("daughter"); show THEIR role for you, gender-neutral.
 const ROLE = [
@@ -27,10 +27,10 @@ export const timeOf = (when) => String(when || "").split(", ").pop();
 
 // A small list of ids kept between app starts (e.g. missed doses you tapped "OK" on).
 export async function loadIds(key) {
-  try { return JSON.parse((await SecureStore.getItemAsync(key)) || "[]"); } catch (e) { return []; }
+  try { return JSON.parse((await Storage.getItem(key)) || "[]"); } catch (e) { return []; }
 }
 export async function saveIds(key, ids) {
-  try { await SecureStore.setItemAsync(key, JSON.stringify(ids.slice(-60))); } catch (e) { /* not important */ }
+  try { await Storage.setItem(key, JSON.stringify(ids.slice(-60))); } catch (e) { /* not important */ }
 }
 
 // Local dates as "YYYY-MM-DD" (not UTC, so "today" is India's today).

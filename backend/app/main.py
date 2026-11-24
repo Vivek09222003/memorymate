@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MemoryMate API", version="0.6.0", lifespan=lifespan)
+
+# Let the app's browser versions call this API: on this laptop or the Wi-Fi (npx expo start --web, port 8081),
+# and the online website (memorymate-web on Render). Logins use a token header, not cookies.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^(http://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}):(8081|19006)"
+                       r"|https://memorymate-web(-[a-z0-9]+)?\.onrender\.com)$",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(auth.router)
 app.include_router(people.router)

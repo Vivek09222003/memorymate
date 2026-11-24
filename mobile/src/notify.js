@@ -8,8 +8,11 @@ import { api } from "./api";
 const CHANNEL = "reminders";
 const EMOJI = { MEDICINE: "💊", APPOINTMENT: "🏥", BIRTHDAY: "🎂", CALL: "📞", TASK: "✅" };
 
+// In a laptop browser there are no phone alarms: these functions simply do nothing there.
+const web = Platform.OS === "web";
+
 // Show the alert with sound even while the app is open.
-Notifications.setNotificationHandler({
+if (!web) Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
@@ -19,6 +22,7 @@ Notifications.setNotificationHandler({
 });
 
 export async function setupNotifications() {
+  if (web) return false;
   if (Platform.OS === "android") {
     await Notifications.setNotificationChannelAsync(CHANNEL, {
       name: "Reminders",
@@ -38,7 +42,7 @@ let syncing = false;
 
 // Returns how many alarms are set, or null if the server couldn't be reached (old alarms are kept).
 export async function syncAlarms() {
-  if (syncing) return null;
+  if (web || syncing) return null;
   syncing = true;
   try {
     let rings;
@@ -73,6 +77,7 @@ export async function syncAlarms() {
 
 // "Later": ring again from the phone in a few minutes, even if the server is asleep.
 export async function ringAgainIn(minutes, title, notes) {
+  if (web) return;
   await Notifications.scheduleNotificationAsync({
     content: { title: `⏰ ${title}`, body: notes || "Reminder", sound: "default" },
     trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: minutes * 60, channelId: CHANNEL },

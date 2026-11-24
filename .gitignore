@@ -7,3 +7,6 @@ node_modules/
 # Private notes for AI sessions (not for GitHub)
 PROJECT_CONTEXT.md
 MemoryMate_Project_Context.pdf
+
+# Mobile app: saved online-server setting (rename to .env to use it)
+mobile/.env.online
