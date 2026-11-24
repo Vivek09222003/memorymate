@@ -2,7 +2,11 @@
 
 An AI memory companion for elderly people. You talk to it in plain English, Hindi or Hinglish. It remembers people, facts and feelings, sets reminders for medicines, appointments and birthdays, and lets family members and doctors see only what the elder allows.
 
-This manual takes you from a fresh Windows laptop to MemoryMate running in your browser. Expect about 30–45 minutes the first time, mostly spent on downloads.
+**Live version:** https://memorymate-grie.onrender.com/test (test page) · https://memorymate-grie.onrender.com/docs (API). The free server sleeps when idle, so the first visit can take about a minute.
+
+This manual takes you from a fresh Windows laptop to MemoryMate running in your browser and on your phone. Expect about 30–45 minutes the first time, mostly spent on downloads.
+
+**Already set up? Start everything with one command:** open Docker Desktop, then run `.\start.ps1` in the `memorymate-app` folder (see [Part 4](#part-4-every-day-after-the-first-time)).
 
 ---
 
@@ -17,12 +21,19 @@ This manual takes you from a fresh Windows laptop to MemoryMate running in your 
 | Privacy | Every memory is Private, Shared with family, Care (doctor) or Emergency. Doctors see medical information only, by default. |
 | Suggestions | Family and doctors can suggest reminders and health notes. The elder accepts or declines. |
 | Languages | English, हिन्दी and Hinglish. The dropdown at the top picks the reply language. |
+| Emergency help | A Help button (or "help", "bachao", "I fell" in chat) alerts family and doctors at once, even if the AI is down, with call buttons and 108. |
+| Missed-medicine alerts | If a dose isn't marked taken within an hour, family who may see medicines are told. |
+| Overview for family and doctors | Everyone you look after on one screen, most urgent first. |
+| Mobile app | An Expo (React Native) app for elders, family and doctors. Reminders ring from the phone itself, even when the app is closed. |
 
 **Tech stack:**
 - Backend: Python, FastAPI and SQLAlchemy
-- Database: PostgreSQL with pgvector, running in Docker
+- Database: PostgreSQL with pgvector (Docker on your laptop, Neon online)
 - AI: Google Gemini for chat and embeddings
+- Mobile app: React Native with Expo (in `mobile/`)
 - Test UI: one HTML page at `/test`
+- Hosting: Render (backend) + Neon (database)
+- Tests: pytest (backend) and Jest (mobile)
 
 ---
 
@@ -187,6 +198,13 @@ Leave this terminal open. The server stops when you close it.
 
 ## Part 4: Every day after the first time
 
+**The easy way:** open Docker Desktop, wait for *Engine running*, then in the `memorymate-app` folder:
+```powershell
+.\start.ps1
+```
+It starts the database and opens two windows: the backend (on port 8000, reachable from your phone) and the mobile app server (Expo). Close those two windows to stop.
+
+**Or by hand:**
 ```powershell
 # 1. Open Docker Desktop and wait for "Engine running"
 # 2. In a terminal, in the memorymate folder:
@@ -210,6 +228,8 @@ git pull
 cd backend
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt   # in case new packages were added
+cd ..\mobile
+npm install                       # in case the app got new packages
 ```
 
 **To send your changes to GitHub:**
@@ -219,6 +239,45 @@ git commit -m "Short description of what you changed"
 git push
 ```
 Run `git pull` before you start working, so you don't overwrite each other's work.
+
+---
+
+## Part 5: The mobile app (on your phone)
+
+The app is in the `mobile/` folder. During development, your phone runs it inside the free **Expo Go** app.
+Full step-by-step guide: `docs/MemoryMate_Mobile_App_Setup.pdf`.
+
+**One time:**
+1. Install **Node.js LTS** (22.13 or newer) from https://nodejs.org, then reopen VS Code. Check with `node -v`.
+2. Install the app's packages:
+   ```powershell
+   cd mobile
+   npm install
+   ```
+3. On your phone, install **Expo Go** (App Store / Play Store) and sign up (free).
+4. On the laptop, log in with the same Expo account:
+   ```powershell
+   npx expo login
+   ```
+
+**Every time:**
+1. Laptop and phone on the **same Wi-Fi** (or both on your phone hotspot).
+2. Run `.\start.ps1` (Part 4), or by hand: backend with `uvicorn app.main:app --reload --host 0.0.0.0`, and in `mobile`: `npx expo start`.
+3. In Expo Go, tap **MemoryMate** (or scan the QR code). The server address fills itself in.
+4. Log in, or choose **Create account** and pick who it's for (me / a family member / a doctor).
+
+**Use the online server instead of your laptop:** create `mobile\.env` with
+```
+EXPO_PUBLIC_SERVER_URL=https://memorymate-grie.onrender.com
+```
+and restart with `npx expo start --clear`. (This file is not uploaded to GitHub; delete it to use your laptop again.)
+
+**Installable Android app (APK):** needs an Expo account and `npm install -g eas-cli`, then in `mobile`:
+```powershell
+eas login
+eas build -p android --profile preview
+```
+Expo builds it online (10–30 minutes) and gives a download link. Open it on any Android phone to install. The APK uses the online server, so it works without the laptop.
 
 ---
 
@@ -235,7 +294,30 @@ pip install -r requirements-dev.txt
 # every time: Docker running, in the backend folder
 pytest
 ```
-You should see something like `61 passed`. If a test fails, pytest shows which one and why.
+You should see something like `88 passed`. If a test fails, pytest shows which one and why.
+
+**Mobile app tests (Jest):** they check the app's own logic: the server address, login and errors, and the phone alarms.
+```powershell
+# once, in the mobile folder (needs internet)
+npx expo install jest-expo jest -- --save-dev
+# every time
+npm test
+```
+
+---
+
+## Online version (Render + Neon)
+
+MemoryMate's backend runs online at **https://memorymate-grie.onrender.com**, with the database on **Neon**.
+
+- **Updating it:** just `git push` to `main`. Render rebuilds and restarts automatically (a few minutes). Settings are in `render.yaml`.
+- **Secrets** are set in the Render dashboard (Environment), never in GitHub: `DATABASE_URL` (Neon, non-pooled connection string), `GEMINI_API_KEY`, and `JWT_SECRET` (generated by Render).
+- **Free plan limits:** the server sleeps after 15 minutes without visitors (the first request then takes about a minute), and the database has 1 GB.
+- **Setting it up from scratch:** create a Neon project (Singapore region) and copy its connection string with pooling turned off. Then in Render choose **New → Blueprint**, pick this repo, and paste `DATABASE_URL` and `GEMINI_API_KEY` when asked.
+- **Copy your laptop data online (optional, before the first deploy):**
+  ```powershell
+  docker compose exec db sh -c "pg_dump -U memorymate --no-owner --no-acl memorymate | psql 'NEON-CONNECTION-STRING'"
+  ```
 
 ---
 
@@ -254,6 +336,11 @@ You should see something like `61 passed`. If a test fails, pytest shows which o
 | Changes don't show in the browser | Restart the server (`Ctrl+C`, then run `uvicorn` again) and hard-refresh with `Ctrl+Shift+R`. |
 | Pop-ups are late when the tab is in the background | In Chrome, Settings → Performance → turn off **Memory Saver** for localhost, or keep the tab open. |
 | Want a fresh, empty database | `docker compose down -v` deletes **all** data, then run `docker compose up -d`. |
+| `ECONNRESET` during `npm` / `npx` | Your network blocks npm. Switch the laptop to a phone hotspot and try again. |
+| Expo Go: "signed in to Expo Go … but not signed in to Expo CLI" | Run `npx expo login` with the same account as Expo Go. |
+| App: "Unable to resolve module …" | In `mobile`: `npm install`, then `npx expo start --clear`. |
+| App: "Can't reach MemoryMate" | The backend must run with `--host 0.0.0.0`, phone and laptop on the same Wi-Fi, and the Windows Firewall must allow Python on private networks. Test `http://YOUR-IP:8000/docs` in the phone's browser. College Wi-Fi often blocks this: use a hotspot. |
+| Online site is slow the first time | The free Render server was asleep. Wait about a minute. |
 
 ---
 
@@ -262,7 +349,19 @@ You should see something like `61 passed`. If a test fails, pytest shows which o
 ```
 memorymate/
 ├── docker-compose.yml        # PostgreSQL + pgvector database
+├── start.ps1                 # starts database, backend and Expo with one command
+├── render.yaml               # how Render runs the backend online
 ├── README.md                 # this manual
+├── docs/                     # PDF reports and the mobile setup guide
+├── mobile/                   # the Expo (React Native) phone app
+│   ├── App.js                # app frame: login, elder tabs or family screens
+│   ├── src/api.js            # talks to the backend
+│   ├── src/notify.js         # reminder alarms on the phone
+│   ├── src/screens/          # elder screens: Talk, Today, Help, Me, welcome
+│   ├── src/family/           # family and doctor screens
+│   ├── src/components/       # shared buttons, options, header and tabs
+│   ├── __tests__/            # Jest tests
+│   └── eas.json              # Android build settings
 └── backend/
     ├── requirements.txt      # Python packages
     ├── .env.example          # settings template (copy to .env)
@@ -279,10 +378,14 @@ memorymate/
         ├── confirmations.py  # handles "yes / no / haan / nahi" replies
         ├── family_access.py  # family and doctor permissions and invite codes
         ├── timeutil.py       # Indian time (Asia/Kolkata) helpers
-        └── routers/          # API endpoints: auth, people, chat, memories, reminders, family, /test page
+        ├── emergency.py      # spots "help!" and raises emergency alerts
+        └── routers/          # API endpoints: auth, people, chat, memories, reminders, family, emergency, /test page
+    └── tests/                # pytest tests (separate test database, fake AI)
 ```
 
 ## Security rules
 - `.env` holds your Gemini key and JWT secret. **Never commit it and never paste it in chat.** If a key leaks, delete it at https://aistudio.google.com/apikey and make a new one.
 - Each developer uses their **own** Gemini key.
 - The database password in `docker-compose.yml` is for local development only.
+- The online server is public. Test accounts with simple passwords (like `test1234`) must only hold **made-up demo data**.
+- The free Gemini API may use what you send to improve Google's products, so don't put real people's private or health information through it. Real users would need a paid Gemini key.
