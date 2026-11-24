@@ -1,4 +1,4 @@
-// MemoryMate mobile app (elder side). Four tabs: Chat, Today, Help, Me.
+// MemoryMate mobile app. Elders get four tabs (Chat, Today, Help, Me); family and doctors get FamilyApp.
 // Reminders ring from the phone itself; the app also checks the server every 20 seconds while open.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, AppState, ActivityIndicator } from "react-native";
@@ -12,7 +12,7 @@ import ChatScreen from "./src/screens/ChatScreen";
 import TodayScreen from "./src/screens/TodayScreen";
 import HelpScreen from "./src/screens/HelpScreen";
 import MeScreen from "./src/screens/MeScreen";
-import { BigButton } from "./src/components/Big";
+import FamilyApp from "./src/family/FamilyApp";
 import { C, F } from "./src/theme";
 
 const TABS = [
@@ -85,14 +85,9 @@ function Main() {
   if (!ready) return <View style={s.loading}><ActivityIndicator size="large" color={C.brand} /></View>;
   if (!me) return <SafeAreaView style={s.screen}><LoginScreen onLogin={setMe} /></SafeAreaView>;
 
+  // Family members and doctors get their own screens.
   if (me.role !== "ELDER") {
-    return (
-      <SafeAreaView style={[s.screen, { padding: 20, justifyContent: "center" }]}>
-        <Text style={s.title}>Hello {me.name}</Text>
-        <Text style={s.body}>The family and doctor screens of the app are coming next. For now, please use the MemoryMate test page in a browser.</Text>
-        <BigButton title="Log out" kind="light" onPress={signOut} />
-      </SafeAreaView>
-    );
+    return <SafeAreaView style={s.screen}><FamilyApp me={me} onLogout={signOut} /></SafeAreaView>;
   }
 
   const onEmergency = (a) => { setAlert(a); setTab("help"); };

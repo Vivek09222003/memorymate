@@ -1,5 +1,6 @@
 // Talks to the MemoryMate backend (FastAPI). Same routes as the /test page.
 import * as SecureStore from "expo-secure-store";
+import Constants from "expo-constants";
 
 let baseUrl = "";
 let token = "";
@@ -15,9 +16,18 @@ export function cleanUrl(text) {
   return u;
 }
 
+// While developing, the phone loads the app from the laptop (Expo, port 8081), and the MemoryMate
+// backend runs on the same laptop (port 8000). So we can work out the server address ourselves:
+// "192.168.1.7:8081" -> "http://192.168.1.7:8000". No typing the IP, even after changing Wi-Fi.
+export function autoServer() {
+  const host = Constants.expoConfig?.hostUri || Constants.expoGoConfig?.debuggerHost || "";
+  const ip = host.split(":")[0];
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) ? `http://${ip}:8000` : "";
+}
+
 // Saved between app starts: the server address and the login token (token in secure storage).
 export async function loadSaved() {
-  baseUrl = (await SecureStore.getItemAsync("mm_server")) || "";
+  baseUrl = autoServer() || (await SecureStore.getItemAsync("mm_server")) || "";
   token = (await SecureStore.getItemAsync("mm_token")) || "";
   return { baseUrl, hasToken: !!token };
 }

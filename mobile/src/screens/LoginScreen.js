@@ -2,11 +2,12 @@
 import { useState } from "react";
 import { View, Text, TextInput, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { BigButton, Heading } from "../components/Big";
-import { getBaseUrl, login, ping, saveServer } from "../api";
+import { autoServer, getBaseUrl, login, ping, saveServer } from "../api";
 import { C, F, card } from "../theme";
 
 export default function LoginScreen({ onLogin }) {
-  const [server, setServer] = useState(getBaseUrl().replace(/^http:\/\//, "") || "");
+  // Filled in automatically from the laptop that sent the app; can still be changed by hand.
+  const [server, setServer] = useState((autoServer() || getBaseUrl()).replace(/^http:\/\//, ""));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState("");
@@ -40,7 +41,7 @@ export default function LoginScreen({ onLogin }) {
 
         <View style={card}>
           <Heading>Server address</Heading>
-          <Text style={s.help}>Your laptop's address on the Wi-Fi, for example 192.168.1.5:8000</Text>
+          <Text style={s.help}>{autoServer() ? "Filled in automatically from your laptop. Just tap Check connection." : "Your laptop's address on the Wi-Fi, for example 192.168.1.5:8000"}</Text>
           <TextInput style={s.input} value={server} onChangeText={setServer} placeholder="192.168.1.5:8000"
                      autoCapitalize="none" autoCorrect={false} keyboardType="url" />
           <BigButton title="Check connection" kind="light" onPress={check} disabled={busy} small />
