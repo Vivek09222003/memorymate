@@ -122,6 +122,26 @@ class VisibilityUpdate(BaseModel):
     visibility: Visibility
 
 
+# ---------- emergency ----------
+class SosIn(BaseModel):
+    message: str | None = Field(default=None, max_length=500, examples=["I fell in the bathroom"])
+
+
+class EmergencyAlertOut(BaseModel):
+    """An open (or just resolved) call for help, with who to call."""
+    id: int
+    elder_id: int
+    elder_name: str
+    status: str                 # ACTIVE or RESOLVED
+    source: str                 # "button" or "chat"
+    message: str | None         # what they said, if it came from chat
+    raised_at: str              # local time, e.g. "Tue 24 Nov, 3:05 PM"
+    contacts: list[PersonOut]   # emergency contacts with phone numbers
+    information: list[str]      # facts marked for emergencies, e.g. "Blood group B+"
+    resolved_by: str | None = None
+    notified: list[str] = []   # family members and doctors who see this alert
+
+
 # ---------- chat (Step 3) ----------
 class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=2000, examples=["My granddaughter Ananya started computer engineering at NIT Kurukshetra this year."])
@@ -139,6 +159,8 @@ class ChatOut(BaseModel):
     visibility_changes: list[dict] = []    # sharing changes for existing memories, waiting for "yes"
     reminders_to_cancel: list[dict] = []   # reminders to remove, waiting for "yes"
     waiting_for_yes_or_no: bool = False  # True: just reply "yes" or "no" to the question
+    emergency: EmergencyAlertOut | None = None  # help was asked for: family has been alerted
+    suggest_help: bool = False  # they sound unwell: show the Help button, but don't alert anyone yet
 
 
 # ---------- reminders (Step 4a) ----------
@@ -263,7 +285,18 @@ class FamilyDashboard(BaseModel):
     shared_memories: list[SharedMemoryOut] | None = None
     health_notes: list[SharedMemoryOut] | None = None  # CARE memories, for family who help with health
     emergency: EmergencyOut | None = None
+    active_alert: EmergencyAlertOut | None = None  # the elder asked for help and it isn't resolved yet
     hidden_sections: list[str] = []
+
+
+class MissedDoseOut(BaseModel):
+    """A medicine the elder didn't confirm in time, for family who may see medicines."""
+    id: int                 # the alert (occurrence) id
+    elder_id: int
+    elder_name: str
+    title: str
+    notes: str | None
+    when: str               # when it was due, e.g. "Tue 24 Nov, 9:00 PM"
 
 
 class DoctorNoteIn(BaseModel):

@@ -12,14 +12,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import emergency
 from app import family_access as access
 from app.database import get_db
 from app.models import (HELPER_ROLES, AccessLog, FamilyLink, LinkStatus, Memory, MemoryStatus, MemoryType,
                         OccurrenceStatus, Person, Reminder, ReminderKind, ReminderOccurrence, ReminderStatus, User,
                         UserRole, Visibility)
+from app.routers.emergency import alert_out as emergency_alert_out
 from app.routers.reminders import alert_out, new_reminder
 from app.schemas import (AccessLogOut, DoctorNoteIn, EmergencyOut, FamilyDashboard,
-                         FamilyLinkCreate, FamilyLinkOut, FamilyLinkUpdate, InviteCreate, JoinIn, PersonOut,
+                         FamilyLinkCreate, FamilyLinkOut, FamilyLinkUpdate, InviteCreate, JoinIn, MissedDoseOut, PersonOut,
                          ReminderCreate, ReminderOut, ReminderSuggestionIn, SharedMemoryOut, SuggestedNoteOut)
 from app.security import get_current_user
 from app.timeutil import local_now, local_tz, show
@@ -165,6 +167,29 @@ def my_elders(user: User = Depends(get_current_user), db: Session = Depends(get_
         select(FamilyLink).where(FamilyLink.family_user_id == user.id, FamilyLink.status == LinkStatus.ACTIVE)).all()]
 
 
+@router.get("/missed-medicines", response_model=list[MissedDoseOut])
+def missed_medicines(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Family/doctor: medicines missed in the last 24 hours, from every elder who lets you see medicines.
+    A dose disappears from here as soon as the elder marks it taken (late "Done" turns MISSED into DONE)."""
+    _require(user, UserRole.FAMILY)
+    links = db.scalars(select(FamilyLink).where(FamilyLink.family_user_id == user.id,
+                                                FamilyLink.status == LinkStatus.ACTIVE,
+                                                FamilyLink.can_see_medicines.is_(True))).all()
+    names = {l.elder_id: l.elder.name for l in links}
+    if not names:
+        return []
+    rows = db.scalars(
+        select(ReminderOccurrence).join(Reminder)
+        .where(ReminderOccurrence.owner_id.in_(names), ReminderOccurrence.is_main.is_(True),
+               ReminderOccurrence.status == OccurrenceStatus.MISSED,
+               ReminderOccurrence.for_due_at >= local_now() - timedelta(hours=24),
+               Reminder.kind == ReminderKind.MEDICINE, Reminder.visibility.in_(SHAREABLE),
+               Reminder.status.not_in([ReminderStatus.SUGGESTED, ReminderStatus.CANCELLED]))
+        .order_by(ReminderOccurrence.for_due_at.desc())).all()
+    return [MissedDoseOut(id=o.id, elder_id=o.owner_id, elder_name=names[o.owner_id], title=o.reminder.title,
+                          notes=o.reminder.notes, when=show(o.for_due_at)) for o in rows]
+
+
 @router.get("/elders/{elder_id}/dashboard", response_model=FamilyDashboard)
 def dashboard(elder_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Family: today's picture of your relative, limited to what they allow. Each section you open is logged."""
@@ -228,6 +253,9 @@ def dashboard(elder_id: int, user: User = Depends(get_current_user), db: Session
             Memory.owner_id == elder_id, Memory.status == MemoryStatus.ACTIVE,
             Memory.visibility == Visibility.EMERGENCY)).all()
         out.emergency = EmergencyOut(contacts=[PersonOut.model_validate(p) for p in contacts], information=list(info))
+        open_alert = emergency.active_alert(db, elder_id)
+        if open_alert:
+            out.active_alert = emergency_alert_out(db, open_alert, viewer=user)
         seen.append("emergency")
     else:
         out.hidden_sections.append("emergency")

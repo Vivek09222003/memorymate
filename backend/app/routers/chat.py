@@ -13,12 +13,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import confirmations, family_access
+from app import confirmations, emergency, family_access
 from app.ai import AIError, translate, understand
 from app.database import get_db
 from app.models import (FamilyLink, LinkStatus, Memory, MemoryStatus, MemoryType, Message, OccurrenceStatus,
-                        Person, Reminder, ReminderOccurrence, ReminderStatus, User, Visibility)
+                        Person, Reminder, ReminderOccurrence, ReminderStatus, User, UserRole, Visibility)
 from app.retrieval import search
+from app.routers.emergency import alert_out
 from app.routers.memories import sync_phone
 from app.schemas import ChatIn, ChatOut
 from app.security import get_current_user
@@ -247,7 +248,21 @@ def _find_person(people: list[Person], name: str | None, relation: str | None) -
 
 @router.post("", response_model=ChatOut)
 def chat(data: ChatIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    # 0. A plain "yes" / "no" answers what MemoryMate just asked. No AI call, no ids.
+    # 0a. A call for help comes first: alert family at once, without waiting for the AI
+    #     (so it still works when the AI service is busy).
+    if user.role == UserRole.ELDER and emergency.is_emergency(data.message):
+        alert = emergency.raise_alert(db, user, "chat", data.message)
+        db.commit()
+        db.refresh(alert)
+        out = alert_out(db, alert)
+        reply = emergency.reply(user.preferred_language, emergency.contacts(db, user.id), bool(out.notified))
+        db.add(Message(owner_id=user.id, role="user", text=data.message, language=user.preferred_language))
+        db.add(Message(owner_id=user.id, role="assistant", text=reply, language=user.preferred_language))
+        db.commit()
+        log.warning("EMERGENCY alert %s raised by user %s from chat", alert.id, user.id)
+        return ChatOut(reply=reply, intent="EMERGENCY", emergency=out)
+
+    # 0b. A plain "yes" / "no" answers what MemoryMate just asked. No AI call, no ids.
     answer = confirmations.yes_or_no(data.message)
     asked = confirmations.load(db, user.id)
     if answer and confirmations.has_questions(asked):
@@ -416,4 +431,6 @@ def chat(data: ChatIn, user: User = Depends(get_current_user), db: Session = Dep
         visibility_changes=visibility_changes,
         reminders_to_cancel=cancel_list,
         waiting_for_yes_or_no=waiting,
+        # The AI thinks they sound unwell: show the Help button, but only they decide to alert family.
+        suggest_help=result.intent == "EMERGENCY",
     )

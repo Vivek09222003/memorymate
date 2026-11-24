@@ -38,8 +38,17 @@ PAGE = r"""<!DOCTYPE html>
   .row input,.row select{flex:1 1 140px}
   .sug{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 0}
   .sug span{flex:1}
+  button.sos{background:#c8102e;color:#fff;font-weight:700;letter-spacing:.02em}
+  button.sos.armed{background:#7a0018;outline:3px solid #ffb3c0}
+  .emer{background:#fff0f2;border:3px solid #c8102e;border-radius:16px;padding:14px 18px;margin-bottom:12px}
+  .emer h3{margin:0 0 6px;color:#a00d26;font-size:21px}
+  .emer .row{margin-top:8px}
+  a.call{display:inline-block;background:#c8102e;color:#fff;text-decoration:none;border-radius:12px;padding:9px 16px;font-weight:600}
+  a.call.light{background:#ffe1e6;color:#7a0018}
+  .missed{background:#fff6e5;border:3px solid #d9861a;border-radius:16px;padding:12px 18px;margin-bottom:12px}
+  .missed h3{margin:0 0 6px;color:#8a4b00;font-size:19px}
 </style></head><body>
-<header><b>MemoryMate · test page</b><button class="light" id="notif" style="display:none">Turn on desktop alerts</button><select id="lang" style="display:none;font:inherit;padding:8px;border-radius:10px" aria-label="Language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select><span id="who"></span><button class="light" id="out" style="display:none">Log out</button></header>
+<header><b>MemoryMate · test page</b><button class="sos" id="sos" style="display:none" aria-label="Help: alert my family">Help (SOS)</button><button class="light" id="notif" style="display:none">Turn on desktop alerts</button><select id="lang" style="display:none;font:inherit;padding:8px;border-radius:10px" aria-label="Language"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select><span id="who"></span><button class="light" id="out" style="display:none">Log out</button></header>
 <main>
   <form id="login"><div>Log in to start (same accounts as /docs). Elder accounts get the chat, family accounts get the dashboard.</div>
     <input id="email" placeholder="Email" value="vivek@example.com" autocomplete="username">
@@ -60,6 +69,8 @@ PAGE = r"""<!DOCTYPE html>
     <input id="scode" placeholder="Code, e.g. K7M2Q9RD" required style="text-transform:uppercase">
     <button>Sign up and connect</button><div id="serr" class="m err" style="display:none"></div></form>
   <div id="family" style="display:none">
+    <div id="femer"></div>
+    <div id="fmissed"></div>
     <div class="row" style="margin-bottom:12px"><label for="elder" id="elderlabel">Relative:</label><select id="elder" style="font:inherit;padding:8px;border-radius:10px"></select>
       <button class="light" id="refresh">Refresh</button></div>
     <div id="dash"></div>
@@ -82,6 +93,7 @@ PAGE = r"""<!DOCTYPE html>
       <div id="sugmsg" class="muted"></div></div>
   </div>
   <div id="app" style="display:none">
+    <div id="emer"></div>
     <div id="alerts"></div>
     <div id="docnotes"></div>
     <div id="suggestions"></div>
@@ -117,6 +129,7 @@ function show(loggedIn) {
   $("#family").style.display = loggedIn && (role === "FAMILY" || role === "DOCTOR") ? "block" : "none";
   $("#doc").style.display = loggedIn && (role === "FAMILY" || role === "DOCTOR") ? "block" : "none";
   $("#out").style.display = loggedIn ? "inline-block" : "none";
+  $("#sos").style.display = loggedIn && role === "ELDER" ? "inline-block" : "none";
 }
 $("#lang").addEventListener("change", async () => {
   try { await api("/auth/me", {method: "PATCH", headers: {"Content-Type": "application/json"},
@@ -164,7 +177,7 @@ async function start() {
     show(true);
     updateNotifButton();
     if (role === "FAMILY" || role === "DOCTOR") {
-      loadElders(); return;
+      loadElders(); checkFamilyAlerts(); return;
     }
     $("#log").innerHTML = ""; add("Hello " + me.name + ". Tell me something, or ask me anything you've told me.");
     checkAlerts();
@@ -179,6 +192,8 @@ async function send(text) {
   try {
     const r = await api("/chat", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({message: text})});
     thinking.remove(); add(r.reply);
+    if (r.emergency) renderEmer(r.emergency);
+    if (r.suggest_help && !r.emergency) suggestHelp();
     const notes = [];
     const SHARE = {SHARED_FAMILY: " — shared with family", CARE: " — family who help with your health can see it", EMERGENCY: " — shown in emergencies"};
     (r.pending_memories || []).forEach(m => notes.push("Waiting for your yes: remember “" + m.normalized_fact + "”" + (m.replaces_id ? " (replaces an older memory)" : "") + (SHARE[m.visibility] || " — private")));
@@ -209,7 +224,7 @@ $("#no").addEventListener("click", () => send("no"));
 const notified = new Set();
 const canNotify = () => "Notification" in window;
 function updateNotifButton() {
-  $("#notif").style.display = canNotify() && Notification.permission === "default" && role === "ELDER" ? "inline-block" : "none";
+  $("#notif").style.display = canNotify() && Notification.permission === "default" && role ? "inline-block" : "none";
 }
 function askNotify() {
   if (canNotify() && Notification.permission === "default") Notification.requestPermission().then(updateNotifButton);
@@ -224,7 +239,9 @@ function popup(a) {
 }
 
 async function checkAlerts() {
+  if (token && (role === "FAMILY" || role === "DOCTOR")) return checkFamilyAlerts();
   if (!token || role !== "ELDER") return;
+  try { renderEmer(await api("/emergency/active")); } catch (e) {}
   try {
     const notes = await api("/memories/from-others").catch(() => []);
     $("#docnotes").innerHTML = notes.length ? `<div class="card"><h3>Notes from your doctor and family</h3>` + notes.map(n =>
@@ -264,6 +281,99 @@ $("#alerts").addEventListener("click", async e => {
   if (snooze) await api(`/reminders/alerts/${snooze}/snooze?minutes=10`, {method: "POST"}).catch(() => {});
   checkAlerts();
 });
+// ---------- emergency (Help button) ----------
+const telOf = p => "tel:" + String(p || "").replace(/[^0-9+]/g, "");
+const callLinks = contacts => contacts.filter(p => p.phone).map(p =>
+  `<a class="call" href="${telOf(p.phone)}">Call ${esc(p.name)}${p.relation_to_user ? " (" + esc(p.relation_to_user) + ")" : ""} · ${esc(p.phone)}</a>`).join(" ");
+let sosTimer = null;
+$("#sos").addEventListener("click", async () => {
+  const b = $("#sos");
+  if (!b.classList.contains("armed")) {          // first tap: ask to tap again, so it isn't pressed by mistake
+    b.classList.add("armed"); b.textContent = "Tap again to alert family";
+    sosTimer = setTimeout(() => { b.classList.remove("armed"); b.textContent = "Help (SOS)"; }, 5000);
+    return;
+  }
+  clearTimeout(sosTimer); b.classList.remove("armed"); b.textContent = "Help (SOS)";
+  try { renderEmer(await api("/emergency/sos", {method: "POST"})); add("Your family has been alerted.", "info"); }
+  catch (e) { add("Couldn't send the alert: " + e.message + ". Please call someone directly.", "err"); }
+});
+function renderEmer(a) {
+  if (!a || a.status !== "ACTIVE") { $("#emer").innerHTML = ""; return; }
+  const c = callLinks(a.contacts);
+  $("#emer").innerHTML = `<div class="emer" role="alert"><h3>Help is on the way</h3>
+    <div>${a.notified.length ? "Alert sent to " + esc(a.notified.join(", ")) + " at " + esc(a.raised_at) + ". Stay where you are if you can."
+      : "No family member or doctor is connected yet, so nobody got the alert. Please call someone now."}</div>
+    <div class="row">${c || `<span class="muted">No emergency contacts saved yet. Tell me, e.g. "Rajesh is my emergency contact, 98765 43210".</span>`}
+      <a class="call light" href="tel:108">Call 108 (Ambulance)</a></div>
+    ${a.information.length ? `<div class="muted" style="margin-top:8px">Shown to helpers: ${esc(a.information.join(" · "))}</div>` : ""}
+    <div class="row"><button class="light" data-safe="${a.id}">I'm safe now</button></div></div>`;
+}
+$("#emer").addEventListener("click", async e => {
+  const id = e.target.dataset.safe; if (!id) return;
+  try { await api(`/emergency/${id}/resolve`, {method: "POST"}); $("#emer").innerHTML = ""; add("Glad you're safe. I've told your family.", "info"); }
+  catch (err) { add(err.message, "err"); }
+});
+function suggestHelp() {
+  const d = document.createElement("div"); d.className = "m info";
+  d.innerHTML = `Not feeling well? <button class="sos" data-sosnow="1">Alert my family now</button>`;
+  $("#log").appendChild(d); $("#log").scrollTop = $("#log").scrollHeight;
+}
+$("#log").addEventListener("click", async e => {
+  if (!e.target.dataset.sosnow) return;
+  e.target.disabled = true;
+  try { renderEmer(await api("/emergency/sos", {method: "POST"})); add("Your family has been alerted.", "info"); }
+  catch (err) { e.target.disabled = false; add("Couldn't send the alert: " + err.message, "err"); }
+});
+// Family / doctor: a red banner for every open alert, plus a desktop pop-up (with sound) the first time.
+const alerted = new Set();
+async function checkFamilyAlerts() {
+  if (!token || !(role === "FAMILY" || role === "DOCTOR")) return;
+  checkMissed();
+  let list = [];
+  try { list = await api("/emergency/alerts"); } catch (e) { return; }
+  $("#femer").innerHTML = list.map(a => `<div class="emer" role="alert"><h3>Emergency: ${esc(a.elder_name)} needs help</h3>
+    <div>${a.source === "button" ? "Pressed the Help button" : "Said: \u201c" + esc(a.message || "") + "\u201d"} at ${esc(a.raised_at)}.</div>
+    <div class="row"><a class="call" href="tel:108">Call 108 (Ambulance)</a></div>
+    ${callLinks(a.contacts) ? `<div class="muted" style="margin-top:8px">Other emergency contacts:</div><div class="row" style="margin-top:4px">${callLinks(a.contacts)}</div>` : ""}
+    ${a.information.length ? `<div class="muted" style="margin-top:8px">${esc(a.information.join(" · "))}</div>` : ""}
+    <div class="row"><button class="light" data-handled="${a.id}">Mark as handled</button></div></div>`).join("");
+  list.forEach(a => {
+    if (alerted.has(a.id) || !canNotify() || Notification.permission !== "granted") return;
+    alerted.add(a.id);
+    const n = new Notification("EMERGENCY: " + a.elder_name + " needs help", {
+      body: (a.source === "button" ? "Pressed the Help button" : a.message || "") + " \u00b7 " + a.raised_at,
+      tag: "mm-sos-" + a.id, requireInteraction: true});
+    n.onclick = () => { window.focus(); n.close(); };
+  });
+}
+// Missed medicines: an orange banner and one pop-up per missed dose. "OK" hides it on this computer.
+const store = {get: k => { try { return JSON.parse(localStorage.getItem(k) || "[]"); } catch (e) { return []; } },
+               set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v.slice(-200))); } catch (e) {} }};
+async function checkMissed() {
+  let list = [];
+  try { list = await api("/family/missed-medicines"); } catch (e) { return; }
+  const hidden = store.get("mm_missed_ok"), popped = store.get("mm_missed_popped");
+  const items = list.filter(m => !hidden.includes(m.id));
+  $("#fmissed").innerHTML = items.length ? `<div class="missed" role="status"><h3>Missed medicine${items.length > 1 ? "s" : ""}</h3>` +
+    items.map(m => `<div class="sug"><span><b>${esc(m.elder_name)}</b> didn't confirm <b>${esc(m.title)}</b> (due ${esc(m.when)})${m.notes ? " · " + esc(m.notes) : ""}</span>
+      <button class="light" data-missok="${m.id}">OK, I'll check</button></div>`).join("") + `</div>` : "";
+  items.forEach(m => {
+    if (popped.includes(m.id) || !canNotify() || Notification.permission !== "granted") return;
+    popped.push(m.id); store.set("mm_missed_popped", popped);
+    const n = new Notification("Missed medicine: " + m.elder_name, {body: m.title + " \u00b7 due " + m.when, tag: "mm-miss-" + m.id, silent: true});
+    n.onclick = () => { window.focus(); n.close(); };
+  });
+}
+$("#fmissed").addEventListener("click", e => {
+  const id = Number(e.target.dataset.missok); if (!id) return;
+  const hidden = store.get("mm_missed_ok"); hidden.push(id); store.set("mm_missed_ok", hidden); checkMissed();
+});
+$("#femer").addEventListener("click", async e => {
+  const id = e.target.dataset.handled; if (!id) return;
+  try { await api(`/emergency/${id}/resolve`, {method: "POST"}); } catch (err) {}
+  checkFamilyAlerts();
+});
+
 // ---------- family view ----------
 // The link stores YOUR relation to them ("daughter"); show THEIR role for you, gender-neutral.
 const ROLE = [

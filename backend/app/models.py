@@ -7,7 +7,8 @@ User ── Person ── Relationship
   ├── Reminder ── ReminderOccurrence (each time it rings, and what the user did)
   ├── FamilyLink (a trusted family member and exactly what they may see)
   ├── AccessLog (who looked at what, and when)
-  └── ChatState (what MemoryMate just asked, so a plain "yes" or "no" can answer it)
+  ├── ChatState (what MemoryMate just asked, so a plain "yes" or "no" can answer it)
+  └── EmergencyAlert (the elder asked for help; family and doctors see it until it's resolved)
 """
 import enum
 from datetime import date, datetime
@@ -294,3 +295,26 @@ class ChatState(Base):
     pending: Mapped[dict] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now())
+
+
+class AlertStatus(str, enum.Enum):
+    ACTIVE = "ACTIVE"       # help was asked for; family and doctors see a red alert
+    RESOLVED = "RESOLVED"   # the elder said they're safe, or a family member handled it
+
+
+class EmergencyAlert(Base):
+    """The elder pressed Help or said something like "bachao" / "I fell". Shown to every linked helper
+    who may see emergency information, until the elder or a helper marks it resolved."""
+    __tablename__ = "emergency_alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    elder_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(10))           # "button" or "chat"
+    message: Mapped[str | None] = mapped_column(Text)          # what they said, if it came from chat
+    status: Mapped[AlertStatus] = mapped_column(_enum(AlertStatus), default=AlertStatus.ACTIVE)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    elder: Mapped[User] = relationship(foreign_keys=[elder_id])
+    resolved_by: Mapped[User | None] = relationship(foreign_keys=[resolved_by_id])
