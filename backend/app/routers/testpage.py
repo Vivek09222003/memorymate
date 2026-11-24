@@ -59,6 +59,7 @@ PAGE = r"""<!DOCTYPE html>
     <input id="ename" placeholder="Your name" required>
     <input id="eemail" placeholder="Email" required autocomplete="username">
     <input id="epw" type="password" placeholder="Choose a password (6+ characters)" required autocomplete="new-password">
+    <input id="ephone" type="tel" placeholder="Your phone number (optional, so family can call you)" autocomplete="tel">
     <select id="elang" style="font:inherit;padding:12px;border:2px solid #d3d6ee;border-radius:12px"><option value="en">English</option><option value="hi">हिन्दी</option><option value="hinglish">Hinglish</option></select>
     <button>Create my account</button><div id="eerr" class="m err" style="display:none"></div></form>
   <form id="signup" style="background:#fff;border-radius:16px;padding:20px;display:grid;gap:10px;max-width:420px;margin-top:14px">
@@ -94,6 +95,7 @@ PAGE = r"""<!DOCTYPE html>
   </div>
   <div id="app" style="display:none">
     <div id="emer"></div>
+    <div id="phonebox"></div>
     <div id="alerts"></div>
     <div id="docnotes"></div>
     <div id="suggestions"></div>
@@ -148,7 +150,7 @@ $("#login").addEventListener("submit", async e => {
 $("#esignup").addEventListener("submit", async e => {
   e.preventDefault(); $("#eerr").style.display = "none";
   const body = {name: $("#ename").value, email: $("#eemail").value, password: $("#epw").value,
-                role: "ELDER", preferred_language: $("#elang").value};
+                role: "ELDER", preferred_language: $("#elang").value, phone: $("#ephone").value.trim() || null};
   const r = await fetch("/auth/register", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
   if (!r.ok) { const b = await r.json().catch(() => ({})); $("#eerr").textContent = typeof b.detail === "string" ? b.detail : "Please check the details (a real email, and a password of 6+ characters)."; $("#eerr").style.display = "block"; return; }
   const form = new URLSearchParams({username: body.email, password: body.password});
@@ -180,6 +182,7 @@ async function start() {
       loadElders(); checkFamilyAlerts(); return;
     }
     $("#log").innerHTML = ""; add("Hello " + me.name + ". Tell me something, or ask me anything you've told me.");
+    phoneBox(me.phone);
     checkAlerts();
   } catch (e) { logout(); }
 }
@@ -324,6 +327,21 @@ $("#log").addEventListener("click", async e => {
   try { renderEmer(await api("/emergency/sos", {method: "POST"})); add("Your family has been alerted.", "info"); }
   catch (err) { e.target.disabled = false; add("Couldn't send the alert: " + err.message, "err"); }
 });
+// Elder: ask for their own phone number once, so family can call them in an emergency.
+function phoneBox(phone) {
+  $("#phonebox").innerHTML = phone ? "" : `<div class="card"><h3>Your phone number</h3>
+    <p class="muted">Add it so your family and doctor can call you straight away in an emergency.</p>
+    <form id="phonef" class="row"><label for="myphone" class="muted">Phone</label>
+      <input id="myphone" type="tel" placeholder="e.g. 98765 43210" required autocomplete="tel"><button>Save</button></form></div>`;
+}
+$("#phonebox").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    await api("/auth/me", {method: "PATCH", headers: {"Content-Type": "application/json"},
+                           body: JSON.stringify({phone: $("#myphone").value.trim()})});
+    phoneBox("saved"); add("Saved your phone number. Your family can now call you from their alert.", "info");
+  } catch (err) { add("Couldn't save it: " + err.message + " (use digits, spaces or +).", "err"); }
+});
 // Family / doctor: a red banner for every open alert, plus a desktop pop-up (with sound) the first time.
 const alerted = new Set();
 async function checkFamilyAlerts() {
@@ -333,7 +351,7 @@ async function checkFamilyAlerts() {
   try { list = await api("/emergency/alerts"); } catch (e) { return; }
   $("#femer").innerHTML = list.map(a => `<div class="emer" role="alert"><h3>Emergency: ${esc(a.elder_name)} needs help</h3>
     <div>${a.source === "button" ? "Pressed the Help button" : "Said: \u201c" + esc(a.message || "") + "\u201d"} at ${esc(a.raised_at)}.</div>
-    <div class="row"><a class="call" href="tel:108">Call 108 (Ambulance)</a></div>
+    <div class="row">${a.elder_phone ? `<a class="call" href="${telOf(a.elder_phone)}">Call ${esc(a.elder_name)} · ${esc(a.elder_phone)}</a> ` : ""}<a class="call light" href="tel:108">Call 108 (Ambulance)</a></div>
     ${callLinks(a.contacts) ? `<div class="muted" style="margin-top:8px">Other emergency contacts:</div><div class="row" style="margin-top:4px">${callLinks(a.contacts)}</div>` : ""}
     ${a.information.length ? `<div class="muted" style="margin-top:8px">${esc(a.information.join(" · "))}</div>` : ""}
     <div class="row"><button class="light" data-handled="${a.id}">Mark as handled</button></div></div>`).join("");
@@ -412,7 +430,7 @@ async function loadDash() {
   const id = $("#elder").value; if (!id) return;
   try {
     const d = await api(`/family/elders/${id}/dashboard`);
-    let h = `<div class="card"><h3>${esc(d.elder_name)} · ${roleFor(d.relation)}</h3><p class="muted">As of ${esc(d.as_of)} (updates every minute). Only what ${esc(d.elder_name)} chose to share is shown. Each view is logged for them.</p></div>`;
+    let h = `<div class="card"><h3>${esc(d.elder_name)} · ${roleFor(d.relation)}</h3><p class="muted">As of ${esc(d.as_of)} (updates every minute). Only what ${esc(d.elder_name)} chose to share is shown. Each view is logged for them.</p>${d.elder_phone ? `<a class="call light" href="${telOf(d.elder_phone)}">Call ${esc(d.elder_name)} · ${esc(d.elder_phone)}</a>` : ""}</div>`;
     if (d.medicines_today) h += `<div class="card"><h3>Medicines today${d.missed_medicines_today ? ` · <span style="color:#c8102e">${d.missed_medicines_today} missed</span>` : ""}</h3>` +
       list(d.medicines_today, m => `<li>${esc(m.title)} at ${esc(m.when.split(", ").pop())}: ${word(m.status)}</li>`) + `</div>`;
     if (d.upcoming_appointments) h += `<div class="card"><h3>Upcoming appointments and tasks</h3>` +

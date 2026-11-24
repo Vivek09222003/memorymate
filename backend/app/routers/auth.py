@@ -24,6 +24,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         password_hash=hash_password(data.password),
         role=data.role,
         preferred_language=data.preferred_language,
+        phone=data.phone.strip() if data.phone else None,
     )
     db.add(user)
     db.flush()
@@ -51,7 +52,7 @@ def me(user: User = Depends(get_current_user)):
 
 @router.patch("/me", response_model=UserOut)
 def update_me(data: UserUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Change your name or language (en, hi, te)."""
+    """Change your name, language (en, hi, hinglish) or phone number."""
     for field, value in data.model_dump(exclude_unset=True).items():
         if value is not None:
             setattr(user, field, value.strip() if isinstance(value, str) else value)

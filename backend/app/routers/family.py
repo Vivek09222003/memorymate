@@ -196,7 +196,8 @@ def dashboard(elder_id: int, user: User = Depends(get_current_user), db: Session
     _require(user, UserRole.FAMILY)
     link = _active_link(db, elder_id, user)
     start = _today_start()
-    out = FamilyDashboard(elder_name=link.elder.name, relation=link.relation, as_of=show(local_now()))
+    out = FamilyDashboard(elder_name=link.elder.name, relation=link.relation, as_of=show(local_now()),
+                          elder_phone=link.elder.phone if link.can_see_emergency else None)
     seen: list[str] = []
 
     def main_alerts(kind: ReminderKind, frm: datetime, to: datetime):

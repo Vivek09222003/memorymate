@@ -31,6 +31,7 @@ def init_db() -> None:
 
     # Columns added after a table already existed. Each line is safe to run every time.
     upgrades = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(30)",  # elder's own number (emergency)
         "ALTER TABLE memories ADD COLUMN IF NOT EXISTS replaces_id INTEGER "
         "REFERENCES memories(id) ON DELETE SET NULL",  # Step 4c
         "ALTER TABLE reminders ADD COLUMN IF NOT EXISTS suggested_by_id INTEGER "

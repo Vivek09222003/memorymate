@@ -34,7 +34,8 @@ def alert_out(db: Session, alert: EmergencyAlert, viewer: User | None = None) ->
         me = _name_key(viewer.name)
         people = [p for p in people if _name_key(p.name) != me]
     return EmergencyAlertOut(
-        id=alert.id, elder_id=alert.elder_id, elder_name=alert.elder.name, status=alert.status.value,
+        id=alert.id, elder_id=alert.elder_id, elder_name=alert.elder.name, elder_phone=alert.elder.phone,
+        status=alert.status.value,
         source=alert.source, message=alert.message, raised_at=show(alert.created_at),
         contacts=[PersonOut.model_validate(p) for p in people],
         information=emergency.information(db, alert.elder_id),

@@ -16,6 +16,7 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=6, max_length=72, examples=["secret123"])
     role: UserRole = UserRole.ELDER
     preferred_language: str = Field(default="en", pattern=r"^(en|hi|hinglish)$")
+    phone: str | None = Field(default=None, max_length=30, pattern=r"^[0-9+()\-\s]{6,30}$", examples=["98765 43210"])
     invite_code: str | None = Field(default=None, max_length=12,
                                     description="Family accounts: the code your relative gave you")
 
@@ -24,6 +25,7 @@ class UserUpdate(BaseModel):
     """Send only what changes."""
     name: str | None = Field(default=None, min_length=1, max_length=100)
     preferred_language: str | None = Field(default=None, pattern=r"^(en|hi|hinglish)$")
+    phone: str | None = Field(default=None, max_length=30, pattern=r"^[0-9+()\-\s]{6,30}$", examples=["98765 43210"])
 
 
 class UserOut(BaseModel):
@@ -34,6 +36,7 @@ class UserOut(BaseModel):
     email: str
     role: UserRole
     preferred_language: str
+    phone: str | None = None
     created_at: datetime
 
 
@@ -132,6 +135,7 @@ class EmergencyAlertOut(BaseModel):
     id: int
     elder_id: int
     elder_name: str
+    elder_phone: str | None = None   # call the elder directly
     status: str                 # ACTIVE or RESOLVED
     source: str                 # "button" or "chat"
     message: str | None         # what they said, if it came from chat
@@ -278,6 +282,7 @@ class FamilyDashboard(BaseModel):
     """Only the sections the elder allows are filled; the rest are listed in hidden_sections."""
     elder_name: str
     relation: str
+    elder_phone: str | None = None
     as_of: str
     medicines_today: list[AlertOut] | None = None
     missed_medicines_today: int | None = None

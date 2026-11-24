@@ -107,7 +107,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(_enum(UserRole), default=UserRole.ELDER)
-    preferred_language: Mapped[str] = mapped_column(String(10), default="en")  # en, hi, te
+    preferred_language: Mapped[str] = mapped_column(String(10), default="en")  # en, hi, hinglish
+    phone: Mapped[str | None] = mapped_column(String(30))  # so family can call them in an emergency
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     people: Mapped[list["Person"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
