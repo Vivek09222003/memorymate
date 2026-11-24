@@ -14,8 +14,20 @@ from app.routers import auth, chat, emergency, family, memories, people, reminde
 logging.basicConfig(level=logging.INFO)
 
 
+def _check_settings() -> None:
+    """Refuse to run online with settings that are only safe on your own laptop."""
+    from app.config import settings
+    local = any(h in settings.database_url for h in ("@localhost", "@127.0.0.1", "@db:"))
+    if not local and (settings.jwt_secret == "dev-only-secret-change-me" or len(settings.jwt_secret) < 32):
+        raise RuntimeError("JWT_SECRET must be set to a long random value (32+ characters) when the "
+                           "database is online. Anyone could fake logins with the default one.")
+    if not settings.gemini_api_key:
+        logging.warning("GEMINI_API_KEY is empty: chat will answer 'AI is busy' until it is set.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _check_settings()
     init_db()  # create tables on startup
     checker = asyncio.create_task(run_forever())  # rings reminders on time
     yield

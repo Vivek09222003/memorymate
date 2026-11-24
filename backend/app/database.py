@@ -4,7 +4,13 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
 
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+# pool_pre_ping: check a connection still works before using it (an online database like Neon
+#   goes to sleep when idle and drops old connections).
+# pool_recycle: replace connections older than 5 minutes for the same reason.
+# Neon's "-pooler" address shares connections between many apps, so prepared statements are off there.
+_pooled = "-pooler." in settings.database_url
+engine = create_engine(settings.database_url, pool_pre_ping=True, pool_recycle=300,
+                       connect_args={"prepare_threshold": None} if _pooled else {})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 

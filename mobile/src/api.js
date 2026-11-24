@@ -19,7 +19,11 @@ export function cleanUrl(text) {
 // While developing, the phone loads the app from the laptop (Expo, port 8081), and the MemoryMate
 // backend runs on the same laptop (port 8000). So we can work out the server address ourselves:
 // "192.168.1.7:8081" -> "http://192.168.1.7:8000". No typing the IP, even after changing Wi-Fi.
+// Online: put the Render address in mobile/.env as EXPO_PUBLIC_SERVER_URL=https://....onrender.com
+// and the app uses it everywhere, on any network.
 export function autoServer() {
+  const online = cleanUrl(process.env.EXPO_PUBLIC_SERVER_URL || "");
+  if (online) return online;
   const host = Constants.expoConfig?.hostUri || Constants.expoGoConfig?.debuggerHost || "";
   const ip = host.split(":")[0];
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(ip) ? `http://${ip}:8000` : "";

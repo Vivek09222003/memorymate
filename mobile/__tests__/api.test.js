@@ -27,6 +27,13 @@ describe("server address", () => {
     expect(autoServer()).toBe("http://192.168.1.7:8000");
   });
 
+  test("an online server address (EXPO_PUBLIC_SERVER_URL) wins over the laptop", () => {
+    process.env.EXPO_PUBLIC_SERVER_URL = "https://memorymate.onrender.com/";
+    expect(autoServer()).toBe("https://memorymate.onrender.com");
+    delete process.env.EXPO_PUBLIC_SERVER_URL;
+    expect(autoServer()).toBe("http://192.168.1.7:8000");
+  });
+
   test("autoServer gives up on a non-IP host (e.g. an Expo tunnel)", () => {
     Constants.expoConfig.hostUri = "abc-anonymous.exp.direct";
     expect(autoServer()).toBe("");

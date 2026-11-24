@@ -1,5 +1,5 @@
 """Routes the mobile app needs: alarms to set on the phone, and the chat history."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from app.ai import AIResult
 from app.timeutil import local_now
@@ -22,7 +22,8 @@ def test_upcoming_lists_the_next_ring_and_later_daily_repeats(client):
     main = [r for r in rings if r["title"] == "BP medicine" and r["is_main"]]
     assert len(main) == 2                      # today's ring (planned) + tomorrow's (worked out)
     assert main[0]["alert_id"] is not None and main[1]["alert_id"] is None
-    assert main[0]["ring_at"] < main[1]["ring_at"]
+    t = lambda r: datetime.fromisoformat(r["ring_at"].replace("Z", "+00:00"))
+    assert t(main[0]) < t(main[1])
 
 
 def test_upcoming_respects_the_time_window(client):

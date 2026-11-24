@@ -1,4 +1,5 @@
 """App settings, read from the .env file (or environment variables)."""
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +7,18 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://memorymate:memorymate@localhost:5432/memorymate"
+
+    @field_validator("database_url")
+    @classmethod
+    def _use_psycopg(cls, url: str) -> str:
+        """Online databases (Neon, Render) give "postgresql://..." or "postgres://...".
+        SQLAlchemy needs to be told to use psycopg 3, so turn them into "postgresql+psycopg://..."."""
+        url = url.strip()
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix):]
+        return url
+
     embedding_dim: int = 1024
 
     # Login tokens (Step 2). The default only suits your own laptop; set JWT_SECRET in .env.

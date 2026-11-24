@@ -1,0 +1,25 @@
+# Render Blueprint: tells Render how to run the MemoryMate backend.
+# In Render: New + -> Blueprint -> pick this GitHub repo. Render reads this file.
+# Secrets (DATABASE_URL, GEMINI_API_KEY) are NOT in this file: Render asks for them when you create it.
+services:
+  - type: web
+    name: memorymate
+    runtime: python
+    plan: free
+    region: singapore          # closest Render region to India
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true           # every git push to main redeploys
+    envVars:
+      - key: DATABASE_URL      # from Neon: Connection string (direct, not "pooled")
+        sync: false
+      - key: GEMINI_API_KEY    # your own key from https://aistudio.google.com/apikey
+        sync: false
+      - key: JWT_SECRET        # Render makes a long random one for you
+        generateValue: true
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: MISSED_AFTER_MINUTES
+        value: "60"
